@@ -1,13 +1,11 @@
-import { readFile, writeFile, mkdir, access, readdir, stat } from 'fs/promises';
-import { constants } from 'fs';
-import { join, resolve } from 'path';
-import { type Config, type KnowledgeFile } from '../types.js';
+import { readFile, writeFile } from 'fs/promises';
+import { join, resolve, relative } from 'path';
+import { type Config } from '../types.js';
 import { readKnowledgeBase } from '../knowledge/reader.js';
 import { writeKnowledgeFile } from '../knowledge/writer.js';
 import { createOllamaClient } from '../ollama/client.js';
 import { rebuildIndex, searchKnowledge } from '../search/engine.js';
-import { initKnowledgeBase } from '../scaffold/index.js';
-import { getConfigPath } from '../config.js';
+import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
 
 // MCP SDK imports
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -186,10 +184,12 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
         // Extract content after frontmatter (remove existing frontmatter if present)
         const cleaned = response.replace(/^---\n[\s\S]*?\n---\n/, '');
 
-        // Write result
+        // Write result back to the original file path
+        const kDir = join(resolve(projectDir), '.knowledge');
+        const relPath = relative(kDir, knowledge[0].path);
         await writeKnowledgeFile(
           projectDir,
-          `${module}.md`,
+          relPath,
           `---\nmodule: ${module}\nupdated: ${new Date().toISOString().slice(0, 10)}\nfiles: []\n---\n\n${cleaned.trim()}\n`,
         );
 
@@ -206,13 +206,10 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
       }
 
       case 'generate_knowledge_base': {
-        const sourceDirs = params.source_dirs as string[] || [];
+        const sourceDirs = (params.source_dirs as string[] | undefined) ?? [];
         if (sourceDirs.length === 0) {
           return createErrorResponse(new Error('No source directories specified'));
         }
-
-        // Import the generate function from scaffold
-        const { generateKnowledgeBase } = await import('../scaffold/index.js');
         await generateKnowledgeBase(projectDir, config, sourceDirs);
         return createToolResponse(toolName, 'Knowledge base generated successfully');
       }

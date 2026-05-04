@@ -1,12 +1,10 @@
 import { readFile, writeFile, mkdir, access, readdir, stat } from 'fs/promises';
 import { constants } from 'fs';
 import { join, resolve, relative, dirname, extname } from 'path';
-import { type Config, type KnowledgeMeta, type SearchResult, type VectorEntry } from '../types.js';
-import { readKnowledgeBase } from '../knowledge/reader.js';
+import { type Config } from '../types.js';
 import { writeKnowledgeFile } from '../knowledge/writer.js';
-import { createOllamaClient } from '../ollama/client.js';
 import { createClaudeClient } from '../claude/client.js';
-import { rebuildIndex, searchKnowledge } from '../search/engine.js';
+import { rebuildIndex } from '../search/engine.js';
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -281,7 +279,12 @@ Always include frontmatter with module, updated, and files fields.`;
 
 async function walkDir(dir: string): Promise<string[]> {
   const results: string[] = [];
-  const entries = await readdir(dir);
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return results;
+  }
   for (const entry of entries) {
     if (entry.startsWith('.')) continue;
     const fullPath = join(dir, entry);

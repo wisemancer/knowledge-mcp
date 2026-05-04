@@ -1,6 +1,6 @@
 ---
 module: mcp-server
-updated: 2026-04-28
+updated: 2026-05-04
 files: [src/mcp/server.ts, src/mcp/tools.ts]
 ---
 
@@ -20,7 +20,7 @@ const server = new Server(
   { name: 'knowledge-mcp', version: '0.1.0' },
   { capabilities: { tools: {} } }
 );
-registerTools(server, config, cwd);
+registerTools(server, cwd, config);
 const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
@@ -36,7 +36,7 @@ await server.connect(transport);
 export async function startServer(config: Config): Promise<void>
 
 // src/mcp/tools.ts
-export function registerTools(server: Server, config: Config, cwd: string): void
+export function registerTools(server: Server, projectDir: string, config: Config): void
 
 // Handler return type (from MCP SDK):
 // { content: Array<{ type: 'text'; text: string }>, isError?: boolean }

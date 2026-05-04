@@ -1,6 +1,6 @@
 ---
 module: scaffold
-updated: 2026-04-28
+updated: 2026-05-04
 files: [src/scaffold/index.ts]
 ---
 
@@ -17,7 +17,7 @@ Implements `init_knowledge_base` (scaffold empty template files) and `generate_k
 ## Patterns
 ```typescript
 await initKnowledgeBase(projectDir, 'my-project');     // scaffolds templates
-await generateKnowledgeBase(projectDir, ['src/'], config); // calls Claude, writes docs
+await generateKnowledgeBase(projectDir, config, ['src/']); // calls Claude, writes docs
 ```
 
 ## Constraints
@@ -26,13 +26,13 @@ await generateKnowledgeBase(projectDir, ['src/'], config); // calls Claude, writ
 - After `generateKnowledgeBase`, call `rebuildIndex(projectDir, config)` to populate the vector index.
 - Claude response parsing: extract `=== filename ===\n<content>\n=== end ===` blocks. Skip malformed blocks silently.
 - `relativePath` passed to `writeKnowledgeFile` must not start with `.knowledge/` — that prefix is added by the writer.
+- If a source directory passed to `generateKnowledgeBase` does not exist, the internal `walkDir` returns an empty list for that path silently. It does not throw.
 
 ## Interfaces
 ```typescript
 export async function initKnowledgeBase(projectDir: string, projectName?: string): Promise<void>
-export async function generateKnowledgeBase(projectDir: string, sourceDirs: string[], config: Config): Promise<void>
-export async function discoverSourceFiles(dirs: string[]): Promise<string[]>
+export async function generateKnowledgeBase(projectDir: string, config: Config, sourceDirs: string[]): Promise<void>
 ```
 
 ## Files
-- `src/scaffold/index.ts` — `initKnowledgeBase`, `generateKnowledgeBase`, `discoverSourceFiles`, inline templates
+- `src/scaffold/index.ts` — `initKnowledgeBase`, `generateKnowledgeBase`, inline templates, private `walkDir`
