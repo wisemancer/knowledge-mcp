@@ -1,177 +1,185 @@
-# Fix Plan: Align Implementation with Knowledge Base
+# Implementation Plan: AGENTS.md, verify_project, Auto-context Injection
 
 ## Before writing any code
 
 Read these knowledge docs in order:
-1. `.knowledge/architecture.md` — stdout constraint, MCP/CLI routing, module boundaries
-2. `.knowledge/conventions.md` — no `require`, no `console.log`, ESM imports, no `any`
-3. `.knowledge/modules/cli.md` — routing logic, argv pattern, `generate` delegation
-4. `.knowledge/modules/mcp-server.md` — `registerTools` signature, `update_knowledge` write path
-5. `.knowledge/modules/scaffold.md` — `generateKnowledgeBase` param order, `walkDir` constraint
-6. `.knowledge/decisions/004-cli-argv-parsing.md` — why `{ from: 'user' }` is load-bearing
+1. `.knowledge/modules/scaffold.md` — AGENTS.md constraints (root placement, `writeFile` not `writeKnowledgeFile`, idempotency, init file list)
+2. `.knowledge/modules/mcp-server.md` — `verify_project` handler contract, `read_knowledge_base` no-arg behavior
+3. `.knowledge/modules/agents-md.md` — template structure and content rules
+4. `.knowledge/decisions/005-agents-md.md` — why root placement, why verification lives in conventions.md
 
 ---
 
-## What changed in the knowledge base (and why this plan exists)
+## No new dependencies. No type changes.
 
-The following module docs were updated on 2026-05-04 to correct inaccuracies. The code must now be brought in line with what the docs describe.
-
-| Doc | What changed |
-|---|---|
-| `cli.md` | MCP routing handles absent + `serve` + `server`; argv is pre-sliced, parseAsync uses `{ from: 'user' }`; `generate` delegates to scaffold |
-| `mcp-server.md` | `registerTools(server, projectDir, config)` — `projectDir` is second, `config` is third |
-| `scaffold.md` | `generateKnowledgeBase(projectDir, config, sourceDirs)` — `config` before `sourceDirs`; `walkDir` must not throw on missing dirs |
-| `decisions/004` | New — `{ from: 'user' }` is required in `program.parseAsync` |
+`child_process` and `util` are Node.js built-ins. `src/types.ts` is unchanged.
 
 ---
 
 ## Files to modify
 
-No new files. No new dependencies. No type changes to `src/types.ts`.
+| File | What changes |
+|---|---|
+| `src/scaffold/index.ts` | Add `TEMPLATE_AGENTS_MD`; write `AGENTS.md` to project root in `initKnowledgeBase` |
+| `src/mcp/tools.ts` | Append AGENTS.md in `read_knowledge_base` no-arg call; add `verify_project` tool |
 
 ---
 
-## Implementation order
+## Step 1 — `src/scaffold/index.ts`
 
-### Step 1 — `src/index.ts`
+### 1a. Add `TEMPLATE_AGENTS_MD` function
 
-**What to fix:** The MCP routing condition.
-
-Current code only starts the MCP server when `process.argv[2] === 'server'`. Per `cli.md` Decisions, the server must also start when the arg is `'serve'` or absent (no args = MCP client invocation).
+Place after `TEMPLATE_SKILL`, before the `INIT_FILES` constant:
 
 ```typescript
-// Replace the routing block with:
-const arg = process.argv[2];
-if (!arg || arg === 'serve' || arg === 'server') {
-  await startServer(config);
-} else {
-  await runCLI(config, process.argv.slice(2));
+function TEMPLATE_AGENTS_MD(projectName: string): string {
+  return `# ${projectName}
+
+## Knowledge Base
+This project uses knowledge-mcp. Read \`.knowledge/\` before writing code.
+Start every session: call \`read_knowledge_base\` with no arguments.
+
+## Build & Verify
+- \`<add build command>\`
+- \`<add verify command>\`
+
+## Purpose
+<fill in project purpose — see .knowledge/architecture.md>
+
+## Key Constraints
+- <fill in from .knowledge/architecture.md ## Constraints>
+- <fill in from .knowledge/conventions.md ## Constraints>
+`;
 }
 ```
 
-Run `npx tsc --noEmit` before proceeding.
+### 1b. Write `AGENTS.md` at the start of `initKnowledgeBase`
 
----
+Per `scaffold.md`: AGENTS.md goes to `projectDir` directly (not inside `.knowledge/`). Use `writeFile` directly — never `writeKnowledgeFile`. Same idempotency rule: skip if file exists.
 
-### Step 2 — `src/scaffold/index.ts`
-
-**What to fix:** Two things.
-
-**2a. Unused imports** — Remove from the types import line:
-- `KnowledgeMeta`, `SearchResult`, `VectorEntry` (none are used)
-
-Remove from the engine import line:
-- `searchKnowledge` (not used)
-
-**2b. `walkDir` error handling** — Per `scaffold.md` Constraints, if a source directory does not exist, `walkDir` must return an empty list silently without throwing. The current implementation lets `readdir` throw. Add a try/catch around `readdir` matching the pattern used in `src/knowledge/reader.ts`:
+Add before the existing `.knowledge/` file loop:
 
 ```typescript
-async function walkDir(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return results;
-  }
-  // rest of the loop unchanged
+// AGENTS.md lives in project root, not inside .knowledge/
+const agentsPath = join(resolve(projectDir), 'AGENTS.md');
+if (!await exists(agentsPath)) {
+  await writeFile(agentsPath, TEMPLATE_AGENTS_MD(name), 'utf-8');
 }
 ```
 
-Run `npx tsc --noEmit` before proceeding.
-
----
-
-### Step 3 — `src/mcp/tools.ts`
-
-**What to fix:** Three things.
-
-**3a. Static import for `generateKnowledgeBase`** — It is currently dynamically imported inside the `generate_knowledge_base` case. The module is already loaded (via the static `initKnowledgeBase` import). Promote it to the static import at the top:
-
-```typescript
-import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
-```
-
-Remove the `await import(...)` block inside the `generate_knowledge_base` case and call `generateKnowledgeBase` directly.
-
-**3b. `update_knowledge` write path** — The handler currently writes to `${module}.md`. Per `knowledge-io.md`, `writeKnowledgeFile` takes a `relativePath` relative to `.knowledge/`. A module at `.knowledge/modules/example.md` has `module: example` — writing to `example.md` creates a duplicate at the wrong location and leaves the original stale.
-
-Fix: derive the write path from the original file's absolute path:
-
-```typescript
-import { relative } from 'path';
-// inside update_knowledge case, after reading knowledge[0]:
-const kDir = join(resolve(projectDir), '.knowledge');
-const relPath = relative(kDir, knowledge[0].path);
-await writeKnowledgeFile(projectDir, relPath, newContent);
-```
-
-**3c. Unused imports** — Remove:
-- From `fs/promises` import: `readFile`, `mkdir`, `access`, `readdir`, `stat`
-- Entire `import { constants } from 'fs'` line
-- `KnowledgeFile` from the types import
-- `getConfigPath` from the config import (entire line if it is the only item)
+Also consolidate the `projectName ?? 'project'` into a `name` variable used by both AGENTS.md and `TEMPLATE_ARCHITECTURE`.
 
 Run `npx tsc --noEmit` before proceeding.
 
 ---
 
-### Step 4 — `src/cli/index.ts`
+## Step 2 — `src/mcp/tools.ts`
 
-**What to fix:** Five things.
-
-**4a. `require()` calls** — Per `conventions.md`, `require` is CommonJS and not available in ESM modules. The `update` command action (around line 224–231) uses `require("path")` and `require("fs/promises")`. Both modules are already imported at the top of the file. Replace:
+### 2a. Add imports at top of file
 
 ```typescript
-// Before:
-const fullPath = require("path").join(require("path").resolve(projectDir), f);
-const content = await require("fs/promises").readFile(fullPath, "utf-8");
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
-// After:
-const fullPath = join(resolve(projectDir), f);
-const content = await readFile(fullPath, "utf-8");
+const execAsync = promisify(exec);
 ```
 
-**4b. Commander argv** — Per `cli.md` Patterns and `decisions/004-cli-argv-parsing.md`, `program.parseAsync` must be called with `{ from: 'user' }`. The current call `program.parseAsync(args)` uses the default `{ from: 'node' }` which strips the first two elements of an already-sliced array, breaking all subcommands:
+### 2b. Add `verify_project` schema constant
 
 ```typescript
-// Before:
-await program.parseAsync(args);
-
-// After:
-await program.parseAsync(args, { from: 'user' });
+const VERIFY_PROJECT_SCHEMA = {
+  type: 'object',
+  properties: {},
+} as const;
 ```
 
-**4c. `update` command write path** — Same bug as Step 3b. Apply the same fix using `relative(kDir, files[0].path)` to derive the correct write path from the original file location.
-
-**4d. `generate` command** — Per `cli.md` Patterns, the `generate` command must delegate entirely to `generateKnowledgeBase` from `src/scaffold/index.ts`. The CLI must not reimplement file collection or Claude calls. Replace the entire generate action body:
+### 2c. Append to `TOOLS` array
 
 ```typescript
-import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
+{
+  name: 'verify_project',
+  description: 'Run project verification commands from ## Verification in .knowledge/conventions.md. Returns stdout and stderr for each command. Use after writing code to self-correct without human intervention.',
+  inputSchema: VERIFY_PROJECT_SCHEMA,
+},
+```
 
-// generate action:
-.action(async (opts: { sourceDirs: string[] }) => {
-  try {
-    const projectDir = process.cwd();
-    const sourceDirs = opts.sourceDirs.flatMap((d: string) =>
-      d.includes(',') ? d.split(',').map((s: string) => s.trim()) : [d]
-    );
-    if (sourceDirs.length === 0) {
-      process.stderr.write('Error: No source directories specified.\n');
-      process.exit(1);
+### 2d. Update `read_knowledge_base` handler
+
+When no `module` filter is provided, append `AGENTS.md` from the project root if it exists. Per `mcp-server.md`: this makes the no-arg call the canonical full-context call. When a `module` filter is given, do not include AGENTS.md.
+
+```typescript
+case 'read_knowledge_base': {
+  const module = (params.module as string) || undefined;
+  const files = await readKnowledgeBase(projectDir, module);
+  const output = files
+    .map(f => `---\nmodule: ${f.module}\nupdated: ${f.updated}\nfiles: ${JSON.stringify(f.files)}\n---\n\n${f.content}\n`)
+    .join('\n---\n\n');
+
+  if (!module) {
+    const agentsPath = join(resolve(projectDir), 'AGENTS.md');
+    try {
+      const agentsContent = await readFile(agentsPath, 'utf-8');
+      const separator = output ? '\n\n---\n\n' : '';
+      return createToolResponse(toolName, `${output}${separator}## AGENTS.md\n\n${agentsContent}`);
+    } catch {
+      // AGENTS.md does not exist — return knowledge files only
     }
-    await generateKnowledgeBase(projectDir, config, sourceDirs);
-    process.stdout.write('Knowledge base generated successfully.\n');
-  } catch (error) {
-    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exit(1);
   }
-})
+
+  return createToolResponse(toolName, output);
+}
 ```
 
-Remove the local `walkDir` and `getExt` helpers if they are no longer used after this change.
+### 2e. Add `verify_project` handler in the switch
 
-**4e. Unused imports** — Remove `KnowledgeError` from the types import (unused after 4d). Confirm `resolve` is present in the path import (needed for 4c).
+Per `mcp-server.md`: reads `## Verification` section from `conventions.md`, extracts `` - `<command>` `` bullets, runs each sequentially via `execAsync` with 60s timeout, returns combined output.
+
+```typescript
+case 'verify_project': {
+  const conventions = await readKnowledgeBase(projectDir, 'conventions');
+  if (conventions.length === 0) {
+    return createToolResponse(toolName,
+      'No conventions.md found. Cannot determine verification commands.'
+    );
+  }
+
+  const content = conventions[0].content;
+  const sectionMatch = content.match(/^## Verification\n([\s\S]*?)(?=^## |\s*$)/m);
+  if (!sectionMatch) {
+    return createToolResponse(toolName,
+      'No ## Verification section in conventions.md.\n\nAdd one:\n## Verification\n- `npx tsc --noEmit`'
+    );
+  }
+
+  const commands: string[] = [];
+  const cmdRegex = /^- `(.+?)`/gm;
+  let match: RegExpExecArray | null;
+  while ((match = cmdRegex.exec(sectionMatch[1])) !== null) {
+    commands.push(match[1]);
+  }
+
+  if (commands.length === 0) {
+    return createToolResponse(toolName,
+      'No commands found in ## Verification section. Format each as: - `<command>`'
+    );
+  }
+
+  const results: string[] = [];
+  for (const cmd of commands) {
+    try {
+      const { stdout, stderr } = await execAsync(cmd, { cwd: projectDir, timeout: 60_000 });
+      const out = [stdout, stderr].filter(Boolean).join('\n').trim();
+      results.push(`$ ${cmd}\n${out || '(no output — passed)'}`);
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      const out = [e.stdout, e.stderr].filter(Boolean).join('\n').trim();
+      results.push(`$ ${cmd}\n${out || e.message || 'command failed'}`);
+    }
+  }
+
+  return createToolResponse(toolName, results.join('\n\n'));
+}
+```
 
 Run `npx tsc --noEmit` before proceeding.
 
@@ -179,12 +187,11 @@ Run `npx tsc --noEmit` before proceeding.
 
 ## Verification
 
-After all four steps:
-
 1. `npm run typecheck` — zero errors
-2. `npm run build` — compiles; `dist/index.js` is executable
-3. `node dist/index.js` — starts MCP server (no CLI help screen)
-4. `node dist/index.js serve` — same
-5. `node dist/index.js init test-project` — creates `.knowledge/` scaffold
-6. `node dist/index.js update architecture -f src/index.ts` — no `require is not defined` error
-7. `node dist/index.js search "vector store"` — runs without unhandled exception (Ollama error is acceptable)
+2. `npm run build` — compiles; `dist/index.js` executable
+3. `node dist/index.js init myapp -d /tmp/kbtest` — creates both `AGENTS.md` at `/tmp/kbtest/AGENTS.md` and `.knowledge/` directory
+4. `cat /tmp/kbtest/AGENTS.md` — shows template with `# myapp` heading
+5. Run `init` again on same dir — neither `AGENTS.md` nor any `.knowledge/` file is overwritten
+6. MCP `read_knowledge_base` (no args) — response ends with `## AGENTS.md` section
+7. MCP `verify_project` — returns output of `npx tsc --noEmit`
+8. `rm -rf /tmp/kbtest`

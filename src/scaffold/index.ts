@@ -156,6 +156,26 @@ Instructions for the ${name} agent using this knowledge base.
 `;
 }
 
+function TEMPLATE_AGENTS_MD(projectName: string): string {
+  return `# ${projectName}
+
+## Knowledge Base
+This project uses knowledge-mcp. Read \`.knowledge/\` before writing code.
+Start every session: call \`read_knowledge_base\` with no arguments.
+
+## Build & Verify
+- \`<add build command>\`
+- \`<add verify command>\`
+
+## Purpose
+<fill in project purpose — see .knowledge/architecture.md>
+
+## Key Constraints
+- <fill in from .knowledge/architecture.md ## Constraints>
+- <fill in from .knowledge/conventions.md ## Constraints>
+`;
+}
+
 const INIT_FILES: { path: string; content: string }[] = [
   { path: 'architecture.md', content: TEMPLATE_ARCHITECTURE('project') },
   { path: 'conventions.md', content: TEMPLATE_CONVENTIONS() },
@@ -177,10 +197,17 @@ async function exists(path: string): Promise<boolean> {
 
 export async function initKnowledgeBase(projectDir: string, projectName?: string): Promise<void> {
   const kDir = join(resolve(projectDir), '.knowledge');
-  const archContent = projectName ? TEMPLATE_ARCHITECTURE(projectName) : TEMPLATE_ARCHITECTURE('project');
+  const name = projectName ?? 'project';
+
+  // AGENTS.md goes to project root directly, not inside .knowledge/
+  await mkdir(resolve(projectDir), { recursive: true });
+  const agentsPath = join(resolve(projectDir), 'AGENTS.md');
+  if (!await exists(agentsPath)) {
+    await writeFile(agentsPath, TEMPLATE_AGENTS_MD(name), 'utf-8');
+  }
 
   const filesToWrite: { path: string; content: string }[] = [
-    { path: 'architecture.md', content: archContent },
+    { path: 'architecture.md', content: TEMPLATE_ARCHITECTURE(name) },
     ...INIT_FILES.slice(1),
   ];
 

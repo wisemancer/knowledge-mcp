@@ -1,6 +1,6 @@
 ---
 module: conventions
-updated: 2026-04-28
+updated: 2026-05-04
 files: [src/**/*.ts]
 ---
 
@@ -26,6 +26,14 @@ Coding standards for the knowledge-mcp TypeScript codebase. These are non-negoti
 - Do not use CommonJS (`require`, `module.exports`).
 - Do not define types inline in implementation files — all shared types live in `src/types.ts`.
 
+## Verification
+Commands run by the `verify_project` MCP tool to check project correctness. Each project's `conventions.md` defines its own list. The `verify_project` tool reads this section at call time and runs each command in sequence.
+
+Format — one backtick-wrapped command per bullet:
+- `npx tsc --noEmit`
+
+Add more commands as the project grows (e.g. `npm test`, `npm run lint`). Commands run in the project working directory captured at MCP server startup.
+
 ## Interfaces
 See `src/types.ts` for all shared types. Modules import from `'../types.js'`, never from each other's internals.
 
@@ -34,7 +42,7 @@ See `src/types.ts` for all shared types. Modules import from `'../types.js'`, ne
 src/types.ts              — all shared types, interfaces, error class, ConfigSchema
 src/config.ts             — config loading and defaults
 src/mcp/server.ts         — MCP Server + stdio transport startup
-src/mcp/tools.ts          — tool handler registrations (all 6 tools)
+src/mcp/tools.ts          — tool handler registrations (all 7 tools)
 src/knowledge/reader.ts   — read and parse .knowledge/ files
 src/knowledge/writer.ts   — write knowledge files with frontmatter
 src/search/engine.ts      — semantic search orchestration
