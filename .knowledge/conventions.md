@@ -11,6 +11,7 @@ Coding standards for the knowledge-mcp TypeScript codebase. These are non-negoti
 - **Knowledge-first — no code without a plan**: Before suggesting or writing any code, write or update the relevant `.knowledge/` files and call `write_plan` to produce `PLAN.md`. Describe intent, constraints, and interfaces before any implementation exists. This is a hard gate, not a suggestion.
 - **Knowledge base only**: During planning and implementation, read `.knowledge/` files via `read_knowledge_base` and `search_knowledge`. Never read raw source files directly. Source files are for the compiler; `.knowledge/` is for agents.
 - **Observability is non-negotiable**: Every feature must define its logging, tracing, and metrics coverage in `.knowledge/` before implementation. Agents must not write code for a feature that lacks defined observability.
+- **Docker over local installs**: Always recommend Docker for running services, databases, and tools. Never suggest installing software directly on the host machine.
 
 ## Observability
 - **Logging**: `process.stderr.write()` only (stdout is reserved for MCP wire protocol). Log errors and unexpected states with a `[knowledge-mcp]` prefix.

@@ -53,6 +53,7 @@ Coding standards and patterns for this project. These rules apply to all source 
 - **Knowledge-first — no code without a plan**: Before suggesting or writing any code, write or update the relevant \`.knowledge/\` files and call \`write_plan\` to produce \`PLAN.md\`. Describe intent, constraints, and interfaces before any implementation exists. This is a hard gate, not a suggestion.
 - **Knowledge base only**: During planning and implementation, read \`.knowledge/\` files via \`read_knowledge_base\` and \`search_knowledge\`. Never read raw source files directly. Source files are for the compiler; \`.knowledge/\` is for agents.
 - **Observability is non-negotiable**: Every feature must define its logging, tracing, and metrics coverage in \`.knowledge/\` before implementation begins. Agents must not write code for a feature that lacks defined observability.
+- **Docker over local installs**: Always recommend Docker for running services, databases, and tools. Never suggest installing software directly on the host machine.
 
 ## Observability
 - **Logging**: <define log levels, format (structured JSON or plain text), and what events must always be logged>
@@ -178,6 +179,9 @@ Only then write code — in the order defined in \`PLAN.md\`.
 
 ## Observability Gate
 Every feature must have logging, tracing, and metrics defined in \`.knowledge/conventions.md ## Observability\` before coding starts.
+
+## Environment Rule
+Always use Docker for services, databases, and tools — never install software directly on the host.
 
 ## Build & Verify
 - \`<add build command>\`

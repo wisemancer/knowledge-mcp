@@ -12,6 +12,9 @@ During planning and implementation, read `.knowledge/` files via `read_knowledge
 ## Observability Gate
 Every feature must have logging, tracing, and metrics defined in `.knowledge/conventions.md ## Observability` before coding starts.
 
+## Environment Rule
+Always use Docker for services, databases, and tools — never install software directly on the host.
+
 ## Build & Install
 ```bash
 npm run build        # compile TypeScript → dist/, set shebang executable
