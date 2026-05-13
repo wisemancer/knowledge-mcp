@@ -5,10 +5,10 @@ files: [src/mcp/server.ts, src/mcp/tools.ts]
 ---
 
 ## Purpose
-Initializes the MCP server, registers all seven tools with their input schemas and handlers, and connects to stdio transport. Tool handlers delegate to core modules (knowledge-io, search, scaffold).
+Initializes the MCP server, registers all nine tools with their input schemas and handlers, and connects to stdio transport. Tool handlers delegate to core modules (knowledge-io, search, scaffold).
 
 ## Decisions
-- **`tools.ts` handles all seven tools**: `server.ts` is wiring only (`new Server`, `registerTools`, `connect`). Keeping tools together makes the tool surface easy to audit.
+- **`tools.ts` handles all nine tools**: `server.ts` is wiring only (`new Server`, `registerTools`, `connect`). Keeping tools together makes the tool surface easy to audit.
 - **`cwd` captured at startup**: `process.cwd()` is resolved once when the server starts. MCP clients cannot change the working directory mid-session.
 - **Zod validation inside each handler**: Each handler parses `request.params.arguments` through its Zod schema before any logic. Invalid input returns `isError: true`, never throws.
 - **`setRequestHandler` API**: Uses `ListToolsRequestSchema` + `CallToolRequestSchema` from `@modelcontextprotocol/sdk/types.js`. Tool input schemas are expressed as JSON Schema objects (not Zod — MCP protocol requires JSON Schema).
@@ -29,14 +29,21 @@ await server.connect(transport);
 
 **`read_knowledge_base`** — when called with no `module` argument, returns all knowledge files AND the contents of `AGENTS.md` (project root) if it exists. AGENTS.md is appended after the knowledge files in the response. This makes the no-arg call the canonical "full project context" call for agents starting a session. When a `module` filter is provided, AGENTS.md is not included.
 
+**`generate_knowledge_base`** — collects source files (up to 100KB) from the given `source_dirs` and returns them as formatted text with instructions. No LLM call is made. The caller (Claude Code) analyzes the returned text and writes each knowledge doc by calling `write_knowledge_file`.
+
+**`write_knowledge_file`** — writes a single file to `.knowledge/` and rebuilds the vector index. `path` is relative to `.knowledge/` (e.g. `"modules/auth.md"`). Called by the agent after analyzing source files returned by `generate_knowledge_base`.
+
 **`verify_project`** — reads the `## Verification` section from `.knowledge/conventions.md`, extracts each `` - `<command>` `` bullet, runs them sequentially in the project working directory using `child_process.exec`, and returns combined stdout + stderr for each command. If no `## Verification` section exists, returns a message explaining how to add one. Does not mutate any files.
 
 Input schema for `verify_project`: `{ type: 'object', properties: {} }` — no parameters.
 
+**`design_project`** — takes a free-form `idea` string and returns a structured design interview document with four required gap markers: Observability (NON-NEGOTIABLE), Tech stack, Constraints, Error handling contract. Also includes an Instructions block telling Claude to resolve gaps conversationally, then call `write_knowledge_file` × 2, `init_knowledge_base`, and `write_plan` in that order. No LLM call, no file I/O — pure text generation. Call this before `init_knowledge_base` on any greenfield project.
+
 ## Constraints
 - Never write to `process.stdout` in any tool handler. MCP transport owns stdout.
 - All tool handlers must be non-throwing: catch all errors, return `{ isError: true, content: [{ type: 'text', text: e.message }] }`.
-- Tool names are exact: `read_knowledge_base`, `search_knowledge`, `write_plan`, `update_knowledge`, `init_knowledge_base`, `generate_knowledge_base`, `verify_project`.
+- Tool names are exact: `read_knowledge_base`, `search_knowledge`, `write_plan`, `update_knowledge`, `init_knowledge_base`, `generate_knowledge_base`, `write_knowledge_file`, `verify_project`, `design_project`.
+- `write_knowledge_file` path must not start with `.knowledge/` — that prefix is added by the writer internally.
 - `verify_project` uses `child_process.exec` (promisified), not `execSync`. The handler must be async and await each command. Commands time out after 60 seconds each.
 - `verify_project` does not shell-escape commands — they are taken verbatim from conventions.md. Conventions.md is a trusted project file, not user input.
 
@@ -54,4 +61,4 @@ export function registerTools(server: Server, projectDir: string, config: Config
 
 ## Files
 - `src/mcp/server.ts` — Server instantiation, `registerTools` call, `StdioServerTransport` connection
-- `src/mcp/tools.ts` — `registerTools` function with all seven `CallToolRequestSchema` handler branches
+- `src/mcp/tools.ts` — `registerTools` function with all nine `CallToolRequestSchema` handler branches
