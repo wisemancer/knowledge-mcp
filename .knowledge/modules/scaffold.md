@@ -12,16 +12,18 @@ Implements `init_knowledge_base` (scaffold empty template files including `AGENT
 - **`init` is idempotent**: Checks file existence before writing. Skips files that already exist. Safe to call multiple times.
 - **`AGENTS.md` written by `init`, not `generate`**: AGENTS.md is structural scaffolding (same shape for every project, just parameterized by name). `generate` is for knowledge derived from source code. See `decisions/005-agents-md.md`.
 - `generate` requires no API key: The generation function now collects source file text and returns it, allowing the caller to perform reasoning and generation using its own context (e.g., another local LLM).
-- **Source discovery skips noise dirs**: Skips `node_modules`, `.git`, `dist`, `build`, `__pycache__`, `.venv`. Supports `.ts`, `.js`, `.py`, `.go`, `.rs`, `.java`, `.cpp`, `.c`.
+- **Project-type-aware generation**: `detectProjectType` inspects the project root for marker files (Package.swift, go.mod, Cargo.toml, package.json, etc.) and selects a language-specific profile. Detection is root-only — no recursive filesystem traversal.
+- **Language-specific profiles**: 8 predefined profiles (Swift, Node, Go, Rust, Python, Java, C/C++, Generic) define extensions, skip directories, and ecosystem hints. Profiles are injected into generation prompts.
+- **Source discovery respects profiles**: File collection now uses the selected profile's extension list and skip directory set instead of hardcoded values. Same 100KB cap applies.
 - **100KB source cap per generation call**: Prevents context overflow. Collects files until total character count exceeds 100,000, then stops.
 
 ## Patterns
 ```typescript
 await initKnowledgeBase(projectDir, 'my-project');     // scaffolds templates
-// Generate the knowledge base content text
+// Detect type and generate with appropriate profile
 const sourceText = await generateKnowledgeBase(projectDir, ['src/']); 
-// Call the tool to write the documents based on the collected text
-// (The agent should reason over the sourceText and call write_knowledge_file)
+// Or override type manually
+const sourceText = await generateKnowledgeBase(projectDir, ['src/'], config, 'swift');
 ```
 
 ## Constraints
@@ -35,8 +37,18 @@ const sourceText = await generateKnowledgeBase(projectDir, ['src/']);
 
 ## Interfaces
 ```typescript
+export type ProjectType = 'swift' | 'node' | 'go' | 'rust' | 'python' | 'java' | 'cpp' | 'generic'
+
+export interface ProjectProfile {
+  extensions: string[];
+  skipDirs: string[];
+  defaultSourceDirs: string[];
+  languageHint: string;
+}
+
+export async function detectProjectType(projectDir: string): Promise<ProjectType>
 export async function initKnowledgeBase(projectDir: string, projectName?: string): Promise<void>
-export async function generateKnowledgeBase(projectDir: string, sourceDirs: string[]): Promise<string>
+export async function generateKnowledgeBase(projectDir: string, sourceDirs: string[], config?: Config, languageOverride?: ProjectType): Promise<string>
 export function designProject(idea: string): string
 ```
 
@@ -53,4 +65,4 @@ AGENTS.md                    → TEMPLATE_AGENTS_MD(projectName ?? 'project')  [
 ```
 
 ## Files
-- `src/scaffold/index.ts` — `initKnowledgeBase`, `generateKnowledgeBase`, `designProject`, inline templates including `TEMPLATE_AGENTS_MD`, private `walkDir`
+- `src/scaffold/index.ts` — `detectProjectType`, `PROJECT_PROFILES` map, `initKnowledgeBase`, `generateKnowledgeBase`, `designProject`, inline templates including `TEMPLATE_AGENTS_MD`, private `walkDir`
