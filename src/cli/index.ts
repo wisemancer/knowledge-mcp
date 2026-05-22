@@ -47,8 +47,8 @@ export async function runCLI(config: Config, args: string[]): Promise<void> {
           process.stderr.write('Error: No source directories specified. Use -d <dir> [dir ...]\n');
           process.exit(1);
         }
-        await generateKnowledgeBase(projectDir, config, sourceDirs);
-        process.stdout.write('Knowledge base generated successfully.\n');
+        const output = await generateKnowledgeBase(projectDir, sourceDirs);
+        process.stdout.write(output + '\n');
       } catch (error) {
         process.stderr.write(`Error generating knowledge base: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);

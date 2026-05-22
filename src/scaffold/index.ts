@@ -167,6 +167,40 @@ Instructions for the ${name} agent using this knowledge base.
 `;
 }
 
+function TEMPLATE_CLAUDE_MD(projectName: string): string {
+  return `# ${projectName} — Claude Code Instructions
+
+## HARD GATES (non-negotiable, every session)
+
+### Gate 1: Plan before code
+**Never write or modify source code without a written plan in \`PLAN.md\`.**
+
+Before any implementation:
+1. Call \`read_knowledge_base\` (no filter) to load the full knowledge base.
+2. Update \`.knowledge/\` files to reflect design intent via \`write_knowledge_file\`.
+3. Call \`write_plan\` to produce \`PLAN.md\`.
+
+A plan described in conversation but not written via \`write_plan\` is **not a plan**. Do not proceed to code until \`PLAN.md\` exists.
+
+### Gate 2: Knowledge tools only — never read raw source
+During planning and exploration use only:
+- \`read_knowledge_base\` — read architecture, modules, decisions
+- \`search_knowledge\` — search across the knowledge base
+
+Never use \`Read\`, \`cat\`, or any direct file read on source files. Source is for the compiler; \`.knowledge/\` is for agents.
+
+### Gate 3: Observability before coding
+Every feature must have logging, tracing, and metrics defined in \`.knowledge/conventions.md ## Observability\` before coding starts.
+
+### Gate 4: Docker for all services
+Always recommend Docker for services, databases, and tools. Never suggest host-level installs.
+
+## Build & Verify
+- \`<add build command>\`
+- \`<add verify command>\`
+`;
+}
+
 function TEMPLATE_AGENTS_MD(projectName: string): string {
   return `# ${projectName}
 
@@ -225,11 +259,15 @@ export async function initKnowledgeBase(
   const kDir = join(resolve(projectDir), ".knowledge");
   const name = projectName ?? "project";
 
-  // AGENTS.md goes to project root directly, not inside .knowledge/
+  // AGENTS.md and CLAUDE.md go to project root directly, not inside .knowledge/
   await mkdir(resolve(projectDir), { recursive: true });
   const agentsPath = join(resolve(projectDir), "AGENTS.md");
   if (!(await exists(agentsPath))) {
     await writeFile(agentsPath, TEMPLATE_AGENTS_MD(name), "utf-8");
+  }
+  const claudePath = join(resolve(projectDir), "CLAUDE.md");
+  if (!(await exists(claudePath))) {
+    await writeFile(claudePath, TEMPLATE_CLAUDE_MD(name), "utf-8");
   }
 
   const filesToWrite: { path: string; content: string }[] = [

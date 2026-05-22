@@ -25,6 +25,8 @@ MCP Client ──► MCPServer ──► ToolHandlers (tools.ts)
          (reader/writer)      (engine.ts)            (init/generate)
                │                    │                          │
          OllamaClient          VectorStore                AGENTS.md
+         (reader/writer)      (.index.json)           .knowledge/
+// Note: ClaudeClient removed. Generation is now a local process, using collected source text instead of an API call.
          ClaudeClient          (.index.json)           .knowledge/
 ```
 
@@ -44,7 +46,6 @@ Project artifacts managed per-project:
 ## Tech Stack
 - TypeScript 5, Node 20, `"type": "module"` (ESM)
 - `@modelcontextprotocol/sdk` — MCP server and stdio transport
-- `@anthropic-ai/sdk` — Claude API
 - `commander` — CLI argument parsing
 - `zod` — config and tool-input validation
 - Native `fetch` — Ollama HTTP calls (no extra dependency)
