@@ -1,11 +1,11 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const ConfigSchema = z.object({
-  ollama_host: z.string().default('http://localhost:11434'),
-  ollama_model: z.string().default('qwen2.5-coder:7b'),
-  embed_model: z.string().default('nomic-embed-text'),
+  ollama_host: z.string().default("http://localhost:11434"),
+  ollama_model: z.string().default("qwen2.5-coder:7b"),
+  embed_model: z.string().default("nomic-embed-text"),
   anthropic_api_key: z.string().optional(),
-  claude_model: z.string().default('claude-sonnet-4-6'),
+  claude_model: z.string().default("claude-sonnet-4-6"),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -16,15 +16,15 @@ export interface KnowledgeMeta {
 }
 
 export interface KnowledgeFile extends KnowledgeMeta {
-  content: string;
-  path: string;
+  content: string; // markdown body after frontmatter stripped
+  path: string; // absolute filesystem path
 }
 
 export interface VectorEntry {
-  id: string;
+  id: string; // "${module}::${sectionHeading}"
   module: string;
   section: string;
-  text: string;
+  text: string; // stripped plain text (no markdown syntax)
   embedding: number[];
 }
 
@@ -37,17 +37,16 @@ export interface SearchResult {
   module: string;
   section: string;
   text: string;
-  score: number;
+  score: number; // cosine similarity in [0, 1]
 }
 
 export type ErrorCode =
-  | 'CONFIG_NOT_FOUND'
-  | 'KNOWLEDGE_DIR_NOT_FOUND'
-  | 'MODULE_NOT_FOUND'
-  | 'OLLAMA_UNAVAILABLE'
-  | 'CLAUDE_UNAVAILABLE'
-  | 'EMBED_FAILED'
-  | 'INVALID_INPUT';
+  | "CONFIG_NOT_FOUND"
+  | "KNOWLEDGE_DIR_NOT_FOUND"
+  | "MODULE_NOT_FOUND"
+  | "OLLAMA_UNAVAILABLE"
+  | "EMBED_FAILED"
+  | "INVALID_INPUT";
 
 export class KnowledgeError extends Error {
   constructor(
@@ -55,6 +54,6 @@ export class KnowledgeError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'KnowledgeError';
+    this.name = "KnowledgeError";
   }
 }

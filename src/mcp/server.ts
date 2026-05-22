@@ -9,7 +9,7 @@ export async function startServer(config: Config): Promise<void> {
     { name: 'knowledge-mcp', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
-  registerTools(server, config, cwd);
+  registerTools(server, cwd, config);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

@@ -1,6 +1,6 @@
 ---
 module: example
-updated: 2026-05-22
+updated: 2026-05-04
 files: []
 ---
 

@@ -1,10 +1,7 @@
-import { readFile, writeFile, mkdir, access, readdir, stat } from 'fs/promises';
-import { join, resolve, relative, extname, dirname } from 'path';
-import { type Config } from '../types.js';
-import { createClaudeClient } from '../claude/client.js';
-import { writeKnowledgeFile } from '../knowledge/writer.js';
-import { readKnowledgeBase } from '../knowledge/reader.js';
-import { rebuildIndex } from '../search/engine.js';
+import { readFile, writeFile, mkdir, access, readdir, stat } from "fs/promises";
+import { constants } from "fs";
+import { join, resolve, relative, dirname, extname } from "path";
+import { type Config } from "../types.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -51,6 +48,18 @@ files: [src/**/*.ts]
 
 ## Purpose
 Coding standards and patterns for this project. These rules apply to all source files and are non-negotiable.
+
+## Agent Workflow
+- **Knowledge-first — no code without a plan**: Before suggesting or writing any code, write or update the relevant \`.knowledge/\` files and call \`write_plan\` to produce \`PLAN.md\`. Describe intent, constraints, and interfaces before any implementation exists. This is a hard gate, not a suggestion.
+- **Knowledge base only**: During planning and implementation, read \`.knowledge/\` files via \`read_knowledge_base\` and \`search_knowledge\`. Never read raw source files directly. Source files are for the compiler; \`.knowledge/\` is for agents.
+- **Observability is non-negotiable**: Every feature must define its logging, tracing, and metrics coverage in \`.knowledge/\` before implementation begins. Agents must not write code for a feature that lacks defined observability.
+- **Docker over local installs**: Always recommend Docker for running services, databases, and tools. Never suggest installing software directly on the host machine.
+
+## Observability
+- **Logging**: <define log levels, format (structured JSON or plain text), and what events must always be logged>
+- **Tracing**: <define whether distributed tracing is required and with what library, or explicitly state "not required at current scale">
+- **Metrics**: <define what counters/gauges/histograms the project emits and where they are collected>
+- **Error reporting**: <define how errors surface — stderr, external service, MCP error response, etc.>
 
 ## Patterns
 - **<pattern name>**: description of the pattern and rationale.
@@ -153,127 +162,242 @@ Instructions for the ${name} agent using this knowledge base.
 ## Anti-patterns
 - Do not proceed without reading the constraints sections of affected modules.
 - Never skip the implementation order — dependencies must exist before dependents.
+- Do not read raw source files. Use \`read_knowledge_base\` and \`search_knowledge\` only. Source files are for the compiler; \`.knowledge/\` is for agents.
+- Do not skip \`write_plan\`. A plan described in conversation but not written to \`PLAN.md\` is not a plan.
 `;
 }
 
-async function fileExists(path: string): Promise<boolean> {
+function TEMPLATE_CLAUDE_MD(projectName: string): string {
+  return `# ${projectName} — Claude Code Instructions
+
+## HARD GATES (non-negotiable, every session)
+
+### Gate 1: Plan before code
+**Never write or modify source code without a written plan in \`PLAN.md\`.**
+
+Before any implementation:
+1. Call \`read_knowledge_base\` (no filter) to load the full knowledge base.
+2. Update \`.knowledge/\` files to reflect design intent via \`write_knowledge_file\`.
+3. Call \`write_plan\` to produce \`PLAN.md\`.
+
+A plan described in conversation but not written via \`write_plan\` is **not a plan**. Do not proceed to code until \`PLAN.md\` exists.
+
+### Gate 2: Knowledge tools only — never read raw source
+During planning and exploration use only:
+- \`read_knowledge_base\` — read architecture, modules, decisions
+- \`search_knowledge\` — search across the knowledge base
+
+Never use \`Read\`, \`cat\`, or any direct file read on source files. Source is for the compiler; \`.knowledge/\` is for agents.
+
+### Gate 3: Observability before coding
+Every feature must have logging, tracing, and metrics defined in \`.knowledge/conventions.md ## Observability\` before coding starts.
+
+### Gate 4: Docker for all services
+Always recommend Docker for services, databases, and tools. Never suggest host-level installs.
+
+## Build & Verify
+- \`<add build command>\`
+- \`<add verify command>\`
+`;
+}
+
+function TEMPLATE_AGENTS_MD(projectName: string): string {
+  return `# ${projectName}
+
+## Workflow Rule
+**Never write code without a plan.** Before any implementation:
+1. Call \`read_knowledge_base\` with no arguments to load the full knowledge base.
+2. Update \`.knowledge/\` files to reflect the design intent via \`write_knowledge_file\`.
+3. Call \`write_plan\` to record the implementation plan in \`PLAN.md\`.
+Only then write code — in the order defined in \`PLAN.md\`.
+
+## Observability Gate
+Every feature must have logging, tracing, and metrics defined in \`.knowledge/conventions.md ## Observability\` before coding starts.
+
+## Environment Rule
+Always use Docker for services, databases, and tools — never install software directly on the host.
+
+## Build & Verify
+- \`<add build command>\`
+- \`<add verify command>\`
+
+## Purpose
+<fill in project purpose — see .knowledge/architecture.md>
+
+## Key Constraints
+- <fill in from .knowledge/architecture.md ## Constraints>
+- <fill in from .knowledge/conventions.md ## Constraints>
+`;
+}
+
+const INIT_FILES: { path: string; content: string }[] = [
+  { path: "architecture.md", content: TEMPLATE_ARCHITECTURE("project") },
+  { path: "conventions.md", content: TEMPLATE_CONVENTIONS() },
+  { path: "modules/example.md", content: TEMPLATE_MODULE("example") },
+  {
+    path: "decisions/001-example.md",
+    content: TEMPLATE_DECISION("001-example"),
+  },
+  { path: "skills/planning.md", content: TEMPLATE_SKILL("planning") },
+  { path: "skills/coding.md", content: TEMPLATE_SKILL("coding") },
+  { path: "skills/updater.md", content: TEMPLATE_SKILL("updater") },
+];
+
+async function exists(path: string): Promise<boolean> {
   try {
-    await access(path);
+    await access(path, constants.F_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-export async function initKnowledgeBase(projectDir: string, projectName?: string): Promise<void> {
-  const templates: Array<[string, string]> = [
-    ['architecture.md', TEMPLATE_ARCHITECTURE(projectName ?? 'project')],
-    ['conventions.md', TEMPLATE_CONVENTIONS()],
-    ['modules/example.md', TEMPLATE_MODULE('example')],
-    ['decisions/001-example.md', TEMPLATE_DECISION('001-example')],
-    ['skills/planning.md', TEMPLATE_SKILL('planning')],
-    ['skills/coding.md', TEMPLATE_SKILL('coding')],
-    ['skills/updater.md', TEMPLATE_SKILL('updater')],
+export async function initKnowledgeBase(
+  projectDir: string,
+  projectName?: string,
+): Promise<void> {
+  const kDir = join(resolve(projectDir), ".knowledge");
+  const name = projectName ?? "project";
+
+  // AGENTS.md and CLAUDE.md go to project root directly, not inside .knowledge/
+  await mkdir(resolve(projectDir), { recursive: true });
+  const agentsPath = join(resolve(projectDir), "AGENTS.md");
+  if (!(await exists(agentsPath))) {
+    await writeFile(agentsPath, TEMPLATE_AGENTS_MD(name), "utf-8");
+  }
+  const claudePath = join(resolve(projectDir), "CLAUDE.md");
+  if (!(await exists(claudePath))) {
+    await writeFile(claudePath, TEMPLATE_CLAUDE_MD(name), "utf-8");
+  }
+
+  const filesToWrite: { path: string; content: string }[] = [
+    { path: "architecture.md", content: TEMPLATE_ARCHITECTURE(name) },
+    ...INIT_FILES.slice(1),
   ];
 
-  for (const [relativePath, content] of templates) {
-    const fullPath = join(resolve(projectDir), '.knowledge', relativePath);
-    if (!(await fileExists(fullPath))) {
-      await writeKnowledgeFile(projectDir, relativePath, content);
-    }
+  for (const file of filesToWrite) {
+    const fullPath = join(kDir, file.path);
+    if (await exists(fullPath)) continue;
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, file.content, "utf-8");
   }
 }
 
-async function collectSourceFiles(dirs: string[], maxBytes: number = 100_000): Promise<Array<{ path: string; content: string }>> {
-  const results: Array<{ path: string; content: string }> = [];
+export async function generateKnowledgeBase(
+  projectDir: string,
+  sourceDirs: string[],
+): Promise<string> {
+  // Collect source files up to 100KB total
   let totalBytes = 0;
+  const MAX_BYTES = 100 * 1024;
+  const sourceFiles: { path: string; content: string }[] = [];
 
-  async function walk(dir: string): Promise<void> {
-    let entries: string[];
-    try {
-      entries = await readdir(dir);
-    } catch {
-      return;
-    }
-
+  for (const dir of sourceDirs) {
+    const fullDir = resolve(dir);
+    const entries = await walkDir(fullDir);
     for (const entry of entries) {
-      if (totalBytes >= maxBytes) return;
-      if (entry.startsWith('.') || entry === 'node_modules' || entry === 'dist') continue;
-
-      const full = join(dir, entry);
-      const s = await stat(full);
-      if (s.isDirectory()) {
-        await walk(full);
-      } else {
-        const ext = extname(full);
-        if (['.ts', '.js', '.tsx', '.jsx', '.py', '.java', '.go', '.rs', '.cpp', '.c', '.h'].includes(ext)) {
-          try {
-            const content = await readFile(full, 'utf-8');
-            totalBytes += content.length;
-            if (totalBytes <= maxBytes) {
-              results.push({ path: full, content });
-            }
-          } catch {
-            // skip unreadable files
-          }
-        }
-      }
+      if (totalBytes >= MAX_BYTES) break;
+      const ext = extname(entry);
+      if (
+        ![
+          ".ts",
+          ".tsx",
+          ".js",
+          ".jsx",
+          ".json",
+          ".yaml",
+          ".yml",
+          ".toml",
+          ".md",
+          ".html",
+          ".css",
+        ].includes(ext)
+      )
+        continue;
+      const content = await readFile(entry, "utf-8");
+      const size = Buffer.byteLength(content, "utf-8");
+      if (totalBytes + size > MAX_BYTES) break;
+      totalBytes += size;
+      sourceFiles.push({ path: relative(projectDir, entry), content });
     }
+    if (totalBytes >= MAX_BYTES) break;
   }
 
-  for (const dir of dirs) {
-    const full = resolve(dir);
-    await walk(full);
+  // Format collected files as text for the caller (Claude Code) to analyze
+  const lines: string[] = [];
+  for (const f of sourceFiles) {
+    lines.push(`=== ${f.path} ===\n${f.content}\n=== end ===`);
   }
+  lines.push("\n---");
+  lines.push(
+    "Analyze the files above and call write_knowledge_file for each doc you generate.",
+  );
+  lines.push(`Each knowledge file needs frontmatter (updated: ${today()}):`);
+  lines.push("---\nmodule: <name>\nupdated: <YYYY-MM-DD>\nfiles: [<globs>]\n---");
 
-  return results;
+  return lines.join("\n");
 }
 
-export async function generateKnowledgeBase(projectDir: string, sourceDirs: string[], config: Config): Promise<void> {
-  const claude = createClaudeClient(config);
-  const sourceFiles = await collectSourceFiles(sourceDirs);
+export function designProject(idea: string): string {
+  const title = idea.trim().split(/\n/)[0].slice(0, 120);
+  return `## design_project: ${title}
 
-  if (!claude) {
-    process.stderr.write('⚠️  No anthropic_api_key configured. To generate knowledge base:\n');
-    process.stderr.write('1. Run: knowledge-mcp read <source files>\n');
-    process.stderr.write('2. Paste the output to Claude\n');
-    process.stderr.write('3. Ask Claude to generate knowledge base files\n');
-    process.stderr.write('4. Copy the output back to .knowledge/ directory\n\n');
-    process.stderr.write('Alternatively, set anthropic_api_key in ~/.knowledge-mcp/config.json\n');
-    return;
+### Inferred from your idea
+- Purpose: ${idea.trim()}
+
+### Required gaps — resolve ALL of these before writing any knowledge file
+
+[GAP: Observability] NON-NEGOTIABLE
+Every project must define its observability strategy before implementation begins.
+- Logging: which events must always be logged, format (structured JSON or plain text), destination (stderr, file, external service)
+- Tracing: is distributed tracing required? if yes, which library
+- Metrics: which counters/gauges/histograms the project emits and where they are collected
+- Error reporting: how errors surface to operators (stderr, external service, structured response, etc.)
+
+[GAP: Tech stack]
+- Language / runtime — and why
+- Key framework(s) — and why chosen over alternatives
+- Key dependencies — what each one provides
+
+[GAP: Constraints]
+- What must never happen in this system?
+- What boundaries must never be crossed (e.g. never write to X from Y, never expose Z outside W)?
+
+[GAP: Error handling contract]
+- How are errors typed and thrown from library code?
+- Where are they caught?
+- How do they surface to end users or callers?
+
+---
+### Instructions for Claude
+Ask the user about each [GAP] above in order. Do not skip Observability — it is non-negotiable.
+Once all gaps are resolved, execute this sequence exactly:
+1. Call write_knowledge_file("architecture.md", <fully filled content>)
+2. Call write_knowledge_file("conventions.md", <fully filled content, must include ## Observability section>)
+3. Call init_knowledge_base(project_name: "<name inferred from idea>") to scaffold remaining templates and AGENTS.md
+4. Call write_plan(<implementation plan for the first milestone>)
+Do not write any code until write_plan has been called and PLAN.md exists.
+`;
+}
+
+const NOISE_DIRS = new Set([
+  "node_modules", "dist", "build", "__pycache__", ".venv", "coverage", ".next", "out",
+]);
+
+async function walkDir(dir: string): Promise<string[]> {
+  const results: string[] = [];
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return results;
   }
-
-  const sourceText = sourceFiles.map(f => `=== ${relative(projectDir, f.path)} ===\n${f.content}`).join('\n\n');
-
-  const prompt = `You are an expert code documentation AI. Analyze the following source code and generate a knowledge base structure for the project.
-
-Create documentation files in the format:
-=== path/within/.knowledge/ ===
-<file content with frontmatter>
-=== end ===
-
-Generate at least these files:
-- architecture.md (project overview and design decisions)
-- conventions.md (coding standards)
-- modules/main-modules.md (key modules and their purpose)
-- skills/coding.md (instructions for coding agents)
-
-Each file should have YAML frontmatter with: module, updated (YYYY-MM-DD), files (list).
-
-Source code to analyze:
-${sourceText}`;
-
-  const systemPrompt = `You are a technical documentation expert. Generate clear, concise documentation that will help AI agents understand the codebase structure, key decisions, and conventions.`;
-
-  const response = await claude.generate(prompt, systemPrompt);
-
-  const fileMatches = response.matchAll(/=== (.+?) ===\n([\s\S]*?)(?===|$)/g);
-  for (const match of fileMatches) {
-    const [, path, content] = match;
-    if (path && content && !path.includes('end')) {
-      await writeKnowledgeFile(projectDir, path.trim(), content.trim());
-    }
+  for (const entry of entries) {
+    if (entry.startsWith(".") || NOISE_DIRS.has(entry)) continue;
+    const fullPath = join(dir, entry);
+    const s = await stat(fullPath);
+    if (s.isDirectory()) results.push(...(await walkDir(fullPath)));
+    else results.push(fullPath);
   }
-
-  await rebuildIndex(projectDir, config);
+  return results;
 }

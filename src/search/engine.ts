@@ -15,6 +15,7 @@ function stripMarkdown(text: string): string {
 }
 
 function chunkFile(file: { module: string; content: string }): Array<{ module: string; section: string; text: string }> {
+  // Split on ## headings (keep heading in chunk)
   const parts = file.content.split(/(?=^## )/m);
   return parts
     .map(part => {

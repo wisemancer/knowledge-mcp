@@ -1,90 +1,158 @@
 import { Command } from 'commander';
-import { type Config } from '../types.js';
-import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
-import { searchKnowledge } from '../search/engine.js';
 import { readKnowledgeBase } from '../knowledge/reader.js';
-import { startServer } from '../mcp/server.js';
+import { writeKnowledgeFile } from '../knowledge/writer.js';
+import { rebuildIndex, searchKnowledge } from '../search/engine.js';
+import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
+import { createOllamaClient } from '../ollama/client.js';
+import { type Config } from '../types.js';
+import { readFile } from 'fs/promises';
+import { join, resolve, relative } from 'path';
 
-export async function runCLI(config: Config, argv: string[]): Promise<void> {
+export async function runCLI(config: Config, args: string[]): Promise<void> {
   const program = new Command();
-  const cwd = process.cwd();
 
-  program.name('knowledge-mcp').description('Knowledge base manager for AI-assisted development');
+  program
+    .name('knowledge-mcp')
+    .description('AI-assisted knowledge base manager for development projects')
+    .version('0.1.0');
 
+  // init [projectName]
   program
     .command('init [projectName]')
-    .description('Scaffold .knowledge/ in the current project')
-    .action(async (projectName?: string) => {
+    .description('Initialize the knowledge base for a project')
+    .option('-d, --dir <path>', 'project directory (default: current working directory)')
+    .action(async (projectName?: string, opts?: { dir?: string }) => {
       try {
-        await initKnowledgeBase(cwd, projectName);
-        process.stdout.write('.knowledge/ initialized\n');
-      } catch (e: unknown) {
-        const err = e as Error;
-        process.stderr.write(`Error: ${err.message}\n`);
+        const projectDir = opts?.dir ?? process.cwd();
+        await initKnowledgeBase(projectDir, projectName);
+        process.stdout.write(`Knowledge base initialized at ${projectDir}/.knowledge/\n`);
+      } catch (error) {
+        process.stderr.write(`Error initializing knowledge base: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
       }
     });
 
+  // generate
   program
     .command('generate')
-    .description('Generate knowledge base from source code (optional: set anthropic_api_key for auto-generation)')
-    .option('--src <dirs...>', 'Source directories', ['src'])
-    .action(async (opts: { src: string[] }) => {
+    .description('Generate knowledge base files from source code directories')
+    .requiredOption('-d, --source-dirs <dirs...>', 'source directories to scan (comma-separated or repeated)')
+    .action(async (opts: { sourceDirs: string[] }) => {
       try {
-        await generateKnowledgeBase(cwd, opts.src, config);
-        process.stdout.write('Knowledge base generated\n');
-      } catch (e: unknown) {
-        const err = e as Error;
-        process.stderr.write(`Error: ${err.message}\n`);
-        process.exit(1);
-      }
-    });
-
-  program
-    .command('read [module]')
-    .description('Read knowledge base files')
-    .action(async (module?: string) => {
-      try {
-        const files = await readKnowledgeBase(cwd, module);
-        for (const f of files) {
-          process.stdout.write(`\n=== ${f.module} (${f.path}) ===\n${f.content}\n`);
+        const projectDir = process.cwd();
+        const sourceDirs = opts.sourceDirs.flatMap((d: string) =>
+          d.includes(',') ? d.split(',').map((s: string) => s.trim()) : [d]
+        );
+        if (sourceDirs.length === 0) {
+          process.stderr.write('Error: No source directories specified. Use -d <dir> [dir ...]\n');
+          process.exit(1);
         }
-      } catch (e: unknown) {
-        const err = e as Error;
-        process.stderr.write(`Error: ${err.message}\n`);
+        const output = await generateKnowledgeBase(projectDir, sourceDirs);
+        process.stdout.write(output + '\n');
+      } catch (error) {
+        process.stderr.write(`Error generating knowledge base: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
       }
     });
 
+  // update <module>
+  program
+    .command('update <module>')
+    .description('Update a knowledge module based on changed source files')
+    .option('-d, --dir <path>', 'project directory (default: current working directory)')
+    .option('-f, --files <files...>', 'changed source files to include')
+    .action(async (module: string, opts?: { dir?: string; files?: string[] }) => {
+      try {
+        const projectDir = opts?.dir ?? process.cwd();
+
+        const knowledgeFiles = await readKnowledgeBase(projectDir, module);
+        if (knowledgeFiles.length === 0) {
+          process.stderr.write(`Error: Module '${module}' not found in knowledge base\n`);
+          process.exit(1);
+        }
+
+        const changedFileContents = opts?.files && opts.files.length > 0
+          ? await Promise.all(
+              opts.files.map(async (f) => {
+                const fullPath = join(resolve(projectDir), f);
+                try {
+                  const content = await readFile(fullPath, 'utf-8');
+                  return `=== ${f} ===\n${content}\n=== end ===`;
+                } catch {
+                  return `=== ${f} ===\n[File not found]\n=== end ===`;
+                }
+              })
+            )
+          : ['[No changed files provided]'];
+
+        const prompt = `Here is the current knowledge doc for module '${module}':
+${knowledgeFiles[0].content}
+
+Here are the changed source files:
+${changedFileContents.join('\n')}
+
+Rewrite the knowledge document to reflect the changes. Keep unchanged sections verbatim. Update the 'updated' field to today's date. Preserve the frontmatter structure.`;
+
+        const ollama = createOllamaClient(config);
+        const response = await ollama.generate(prompt);
+        const cleaned = response.replace(/^---\n[\s\S]*?\n---\n/, '');
+
+        const kDir = join(resolve(projectDir), '.knowledge');
+        const relPath = relative(kDir, knowledgeFiles[0].path);
+        await writeKnowledgeFile(
+          projectDir,
+          relPath,
+          `---\nmodule: ${module}\nupdated: ${new Date().toISOString().slice(0, 10)}\nfiles: []\n---\n\n${cleaned.trim()}\n`,
+        );
+
+        await rebuildIndex(projectDir, config);
+        process.stdout.write(`Knowledge for module '${module}' updated successfully\n`);
+      } catch (error) {
+        process.stderr.write(`Error updating knowledge: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exit(1);
+      }
+    });
+
+  // search <query>
   program
     .command('search <query>')
-    .description('Semantic search the knowledge base')
-    .option('--top <n>', 'Number of results', '5')
-    .action(async (query: string, opts: { top: string }) => {
+    .description('Search the knowledge base for relevant information')
+    .option('-k, --top-k <number>', 'number of results to return', '5')
+    .option('-d, --dir <path>', 'project directory (default: current working directory)')
+    .action(async (query: string, opts?: { topK?: string; dir?: string }) => {
       try {
-        const results = await searchKnowledge(cwd, query, parseInt(opts.top), config);
+        const projectDir = opts?.dir ?? process.cwd();
+        const topK = parseInt(opts?.topK ?? '5', 10);
+        const results = await searchKnowledge(projectDir, query, topK, config);
+
+        if (results.length === 0) {
+          process.stdout.write('No results found.\n');
+          return;
+        }
+
         for (const r of results) {
           process.stdout.write(`[${r.score.toFixed(2)}] ${r.module} > ${r.section}: ${r.text.slice(0, 120)}\n`);
         }
-      } catch (e: unknown) {
-        const err = e as Error;
-        process.stderr.write(`Error: ${err.message}\n`);
+      } catch (error) {
+        process.stderr.write(`Error searching knowledge: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
       }
     });
 
+  // serve / server
   program
     .command('serve')
-    .description('Start MCP server (stdio mode)')
+    .alias('server')
+    .description('Start the MCP server (stdio mode)')
     .action(async () => {
+      const { startServer } = await import('../mcp/server.js');
       try {
         await startServer(config);
-      } catch (e: unknown) {
-        const err = e as Error;
-        process.stderr.write(`Error: ${err.message}\n`);
+      } catch (error) {
+        process.stderr.write(`Error starting MCP server: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
       }
     });
 
-  await program.parseAsync(argv);
+  await program.parseAsync(args, { from: 'user' });
 }

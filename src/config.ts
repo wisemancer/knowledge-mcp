@@ -12,6 +12,7 @@ export async function loadConfig(): Promise<Config> {
     const raw = await readFile(getConfigPath(), 'utf-8');
     return ConfigSchema.parse(JSON.parse(raw));
   } catch {
+    // Missing file or invalid JSON — return defaults
     return ConfigSchema.parse({});
   }
 }
