@@ -1,27 +1,30 @@
 ---
 module: decisions/002-dual-model-routing
-updated: 2026-04-28
-files: [src/scaffold/index.ts, src/claude/client.ts, src/ollama/client.ts]
+updated: 2026-05-08
+files: [src/scaffold/index.ts, src/ollama/client.ts]
 ---
 
 ## Decision
-Use the Claude API for initial full-codebase knowledge generation; use Ollama (local model) for incremental per-module updates.
+~~Use the Claude API for initial full-codebase knowledge generation; use Ollama for incremental updates.~~
+
+**Superseded (2026-05-08):** `generate_knowledge_base` no longer calls any external API. It collects source files and returns them as text; the calling agent (Claude Code) performs the reasoning and writes files via `write_knowledge_file`. Ollama is still used for `update_knowledge`.
 
 ## Status
-Accepted
+Superseded
 
 ## Context
 Two operations have fundamentally different characteristics:
 
-1. **Initial generation** (`generate_knowledge_base`): Reads potentially large amounts of source code across many files, requires structural reasoning about the whole codebase, runs once (or rarely after major refactors).
+1. **Initial generation** (`generate_knowledge_base`): Reads large amounts of source code, requires structural reasoning over the whole codebase, runs once per project.
+2. **Incremental update** (`update_knowledge`): Looks at a handful of changed files, regenerates one module doc, runs frequently.
 
-2. **Incremental update** (`update_knowledge`): Looks at a handful of changed files, regenerates one module doc, runs frequently (after each PR or commit batch).
+## Rationale (original)
+Claude API for generation: structural reasoning over large context. Ollama for updates: fast, local, zero marginal cost.
 
-## Rationale
-Claude excels at structural reasoning over large contexts — exactly what initial generation needs. But calling Claude for every incremental update costs money and introduces network latency for an operation that should feel instant. A 7B code model (e.g., `qwen2.5-coder:7b`) running locally via Ollama handles "here are the changed files, update this module doc" adequately with zero marginal cost and sub-second response time.
+## Why superseded
+Requiring a separate Anthropic API key is friction — users running inside Claude Code already have an LLM. The correct agentic pattern is: tool handles I/O, agent handles reasoning. `generate_knowledge_base` now returns collected source text; the caller analyzes it and writes each doc via `write_knowledge_file`. `src/claude/client.ts` deleted.
 
 ## Consequences
-- Ollama must be running locally for `update_knowledge` and `search_knowledge`.
-- An Anthropic API key is required only for `generate_knowledge_base` — all other operations work without one.
-- Two models to configure, but sensible defaults handle the common case.
-- The quality gap for incremental updates (7B vs Claude) is acceptable because module docs are small, structured, and the model has the current doc as a reference to update from.
+- No API key required for any tool.
+- Ollama still required for `update_knowledge` and `search_knowledge` (embedding).
+- Generation quality depends on the calling agent's context window; 100KB source cap still applies.

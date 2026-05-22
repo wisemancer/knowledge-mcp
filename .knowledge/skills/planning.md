@@ -17,7 +17,7 @@ Instructions for an AI planning agent using the knowledge base to plan features 
 
 4. **Check decision records**: Read `.knowledge/decisions/` files. A decision may directly constrain or validate your approach.
 
-5. **Write the plan**: Call `write_plan` to output a PLAN.md with:
+5. **Write the plan**: Call `write_plan` to produce `PLAN.md` in the project root. The plan is not complete until `PLAN.md` exists. Include:
    - Files to create or modify (with purpose)
    - Any new interfaces or type changes to `src/types.ts`
    - Implementation order (topological — dependencies before dependents)
@@ -28,3 +28,5 @@ Instructions for an AI planning agent using the knowledge base to plan features 
 - Do not add dependencies without documenting why existing facilities are insufficient.
 - Do not create a new module without a corresponding `.knowledge/modules/<name>.md` entry in the plan.
 - Do not design for hypothetical future requirements — solve the stated problem only.
+- Do not read raw source files. Use `read_knowledge_base` and `search_knowledge` only. Source is for the compiler; `.knowledge/` is for agents.
+- Do not skip `write_plan`. Describing a plan in conversation without calling `write_plan` is not a plan.
