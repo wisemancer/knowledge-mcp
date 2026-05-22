@@ -1,11 +1,62 @@
 import { readFile, writeFile, mkdir, access, readdir, stat } from "fs/promises";
 import { constants } from "fs";
 import { join, resolve, relative, dirname, extname } from "path";
-import { type Config } from "../types.js";
+import { type Config, type ProjectType, type ProjectProfile } from "../types.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
+
+const PROJECT_PROFILES: Record<ProjectType, ProjectProfile> = {
+  swift: {
+    extensions: [".swift", ".h", ".hpp"],
+    skipDirs: ["DerivedData", ".build", "Pods", ".swiftpm", "Build"],
+    defaultSourceDirs: ["Sources", "."],
+    languageHint: "This is a Swift/iOS project. Note UIKit/SwiftUI patterns, protocols, delegates, package manager (SPM) structure.",
+  },
+  node: {
+    extensions: [".ts", ".js", ".mjs"],
+    skipDirs: ["node_modules", "dist", "build", ".next", ".nuxt"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "This is a TypeScript/Node.js project. Note module exports, async patterns, and framework conventions.",
+  },
+  go: {
+    extensions: [".go"],
+    skipDirs: ["vendor", "build", "dist"],
+    defaultSourceDirs: ["pkg", "cmd", "internal", "."],
+    languageHint: "This is a Go project. Note package structure, interfaces, error handling idioms.",
+  },
+  rust: {
+    extensions: [".rs"],
+    skipDirs: ["target", "build"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "This is a Rust project. Note ownership, trait patterns, crate structure, and Cargo conventions.",
+  },
+  python: {
+    extensions: [".py"],
+    skipDirs: [".venv", "venv", "__pycache__", ".tox", "build", "dist", ".egg-info"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "This is a Python project. Note class hierarchies, decorators, module organization.",
+  },
+  java: {
+    extensions: [".java", ".kt"],
+    skipDirs: ["build", "target", ".gradle", ".m2"],
+    defaultSourceDirs: ["src", "src/main/java", "."],
+    languageHint: "This is a JVM project (Java/Kotlin). Note class hierarchies, interfaces, and build conventions.",
+  },
+  cpp: {
+    extensions: [".cpp", ".c", ".h", ".hpp", ".cc", ".cxx"],
+    skipDirs: ["build", "cmake-build-*", "dist", "obj"],
+    defaultSourceDirs: ["src", "include", "."],
+    languageHint: "This is a C/C++ project. Note header/implementation split, build system conventions.",
+  },
+  generic: {
+    extensions: [".ts", ".js", ".mjs", ".py", ".go", ".rs", ".java", ".kt", ".cpp", ".c", ".h", ".hpp", ".swift"],
+    skipDirs: ["node_modules", "dist", "build", "__pycache__", "target", ".venv", "Pods", ".build"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "Analyze source code structure, patterns, and module organization.",
+  },
+};
 
 function TEMPLATE_ARCHITECTURE(projectName: string): string {
   return `---
@@ -252,6 +303,40 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+export async function detectProjectType(projectDir: string): Promise<ProjectType> {
+  try {
+    const entries = await readdir(projectDir);
+    const entrySet = new Set(entries);
+
+    // Check for Swift
+    if (entrySet.has("Package.swift") || entries.some(e => e.endsWith(".xcodeproj") || e.endsWith(".xcworkspace"))) {
+      return "swift";
+    }
+    // Check for Go
+    if (entrySet.has("go.mod")) return "go";
+    // Check for Rust
+    if (entrySet.has("Cargo.toml")) return "rust";
+    // Check for Node
+    if (entrySet.has("package.json")) return "node";
+    // Check for Python
+    if (entrySet.has("requirements.txt") || entrySet.has("setup.py") || entrySet.has("pyproject.toml")) {
+      return "python";
+    }
+    // Check for Java
+    if (entrySet.has("pom.xml") || entrySet.has("build.gradle") || entries.some(e => e.endsWith(".gradle.kts"))) {
+      return "java";
+    }
+    // Check for C/C++
+    if (entrySet.has("CMakeLists.txt") || entrySet.has("Makefile")) {
+      return "cpp";
+    }
+
+    return "generic";
+  } catch {
+    return "generic";
+  }
+}
+
 export async function initKnowledgeBase(
   projectDir: string,
   projectName?: string,
@@ -286,34 +371,34 @@ export async function initKnowledgeBase(
 export async function generateKnowledgeBase(
   projectDir: string,
   sourceDirs: string[],
+  config?: Config,
+  languageOverride?: ProjectType,
 ): Promise<string> {
+  // Detect project type and get profile
+  const projectType = languageOverride || await detectProjectType(projectDir);
+  const profile = PROJECT_PROFILES[projectType];
+
   // Collect source files up to 100KB total
   let totalBytes = 0;
   const MAX_BYTES = 100 * 1024;
   const sourceFiles: { path: string; content: string }[] = [];
+  const supportedExtensions = new Set(profile.extensions);
+  const skipDirs = new Set(profile.skipDirs);
 
   for (const dir of sourceDirs) {
     const fullDir = resolve(dir);
     const entries = await walkDir(fullDir);
     for (const entry of entries) {
       if (totalBytes >= MAX_BYTES) break;
+
+      // Check skip directories
+      const relPath = relative(fullDir, entry);
+      const pathParts = relPath.split(/[/\\]/);
+      if (pathParts.some(part => skipDirs.has(part))) continue;
+
       const ext = extname(entry);
-      if (
-        ![
-          ".ts",
-          ".tsx",
-          ".js",
-          ".jsx",
-          ".json",
-          ".yaml",
-          ".yml",
-          ".toml",
-          ".md",
-          ".html",
-          ".css",
-        ].includes(ext)
-      )
-        continue;
+      if (!supportedExtensions.has(ext)) continue;
+
       const content = await readFile(entry, "utf-8");
       const size = Buffer.byteLength(content, "utf-8");
       if (totalBytes + size > MAX_BYTES) break;
@@ -325,6 +410,8 @@ export async function generateKnowledgeBase(
 
   // Format collected files as text for the caller (Claude Code) to analyze
   const lines: string[] = [];
+  lines.push(`Language: ${projectType}`);
+  lines.push(`${profile.languageHint}\n`);
   for (const f of sourceFiles) {
     lines.push(`=== ${f.path} ===\n${f.content}\n=== end ===`);
   }

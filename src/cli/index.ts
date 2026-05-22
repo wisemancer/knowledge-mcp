@@ -4,7 +4,7 @@ import { writeKnowledgeFile } from '../knowledge/writer.js';
 import { rebuildIndex, searchKnowledge } from '../search/engine.js';
 import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
 import { createOllamaClient } from '../ollama/client.js';
-import { type Config } from '../types.js';
+import { type Config, type ProjectType } from '../types.js';
 import { readFile } from 'fs/promises';
 import { join, resolve, relative } from 'path';
 
@@ -37,7 +37,8 @@ export async function runCLI(config: Config, args: string[]): Promise<void> {
     .command('generate')
     .description('Generate knowledge base files from source code directories')
     .requiredOption('-d, --source-dirs <dirs...>', 'source directories to scan (comma-separated or repeated)')
-    .action(async (opts: { sourceDirs: string[] }) => {
+    .option('--lang <type>', 'force project type (swift|node|go|rust|python|java|cpp|generic)')
+    .action(async (opts: { sourceDirs: string[]; lang?: string }) => {
       try {
         const projectDir = process.cwd();
         const sourceDirs = opts.sourceDirs.flatMap((d: string) =>
@@ -47,7 +48,8 @@ export async function runCLI(config: Config, args: string[]): Promise<void> {
           process.stderr.write('Error: No source directories specified. Use -d <dir> [dir ...]\n');
           process.exit(1);
         }
-        const output = await generateKnowledgeBase(projectDir, sourceDirs);
+        const languageOverride = opts.lang as ProjectType | undefined;
+        const output = await generateKnowledgeBase(projectDir, sourceDirs, config, languageOverride);
         process.stdout.write(output + '\n');
       } catch (error) {
         process.stderr.write(`Error generating knowledge base: ${error instanceof Error ? error.message : String(error)}\n`);

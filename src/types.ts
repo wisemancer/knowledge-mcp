@@ -45,6 +45,7 @@ export type ErrorCode =
   | "KNOWLEDGE_DIR_NOT_FOUND"
   | "MODULE_NOT_FOUND"
   | "OLLAMA_UNAVAILABLE"
+  | "CLAUDE_UNAVAILABLE"
   | "EMBED_FAILED"
   | "INVALID_INPUT";
 
@@ -56,4 +57,21 @@ export class KnowledgeError extends Error {
     super(message);
     this.name = "KnowledgeError";
   }
+}
+
+export type ProjectType =
+  | "swift"
+  | "node"
+  | "go"
+  | "rust"
+  | "python"
+  | "java"
+  | "cpp"
+  | "generic";
+
+export interface ProjectProfile {
+  extensions: string[];
+  skipDirs: string[];
+  defaultSourceDirs: string[];
+  languageHint: string;
 }
