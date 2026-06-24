@@ -1,43 +1,34 @@
 ---
 module: search
-updated: 2026-04-28
+updated: 2026-06-24
 files: [src/search/engine.ts]
 ---
 
 ## Purpose
-Semantic search across the knowledge base. Chunks each knowledge file into sections (split by `## ` headings), generates embeddings via Ollama, stores them in the JSON vector index, and returns top-N results by cosine similarity.
+Dependency-free lexical search across the knowledge base. Chunks each knowledge file into sections (split by `## ` headings), strips markdown, and scores each section against the query by term coverage, term-frequency density, and a heading-match boost. No embeddings, no external model. See `decisions/008-standalone-mcp`.
 
 ## Decisions
-- **Section-level chunking at `## ` boundaries**: Sections are semantically coherent and small enough for accurate embedding. Splitting at heading boundaries avoids mixing unrelated content in one chunk.
-- **Lazy index rebuild on staleness**: On each search, compare `.index.json` mtime against all `.md` file mtimes. If any `.md` is newer, rebuild before searching. First-time search with no index also triggers rebuild.
-- **In-process cosine similarity**: At knowledge-base scale (dozens to ~200 sections), linear scan over all vectors in JS is fast (<10ms). No ANN library needed.
+- **Lexical, not semantic**: At knowledge-base scale (dozens to ~200 sections) in-process term scoring returns useful results in well under 10ms with zero dependencies. Removed the Ollama embedding model and the JSON vector index.
+- **Section-level chunking at `## ` boundaries**: Sections are coherent units; splitting at headings avoids mixing unrelated content in one result.
+- **Coverage-led scoring**: `score = coverage*0.7 + min(0.2, tfDensity) + headingBoost`, bounded ~[0,1]. Coverage (fraction of query terms present) dominates; density and heading hits break ties.
 
 ## Patterns
 ```typescript
-// Search triggers lazy rebuild if index is stale
-const results = await searchKnowledge(projectDir, 'how to handle errors', 5, config);
-
-// Force a rebuild explicitly (e.g., after generate_knowledge_base)
-await rebuildIndex(projectDir, config);
+const results = await searchKnowledge(projectDir, 'how to handle errors', 5);
 ```
 
 ## Constraints
-- If Ollama is unreachable, throw `KnowledgeError('OLLAMA_UNAVAILABLE', ...)`. Never return empty results silently.
-- Strip markdown formatting (code fences, backticks, `#*_~>` chars) from section text before embedding. Store stripped text in the index.
-- Index rebuild writes to `.index.json.tmp` then atomically renames to `.index.json`.
-- Sections shorter than 20 characters after stripping are skipped.
+- Always strip markdown (code fences, backticks, `#*_~>|`) from section text before scoring.
+- Never require a network service or model — search must work offline with no config.
+- Drop query stopwords and 1-character tokens; sections under 20 chars after stripping are skipped.
+- Sections with zero matched query terms are excluded from results.
 
 ## Interfaces
 ```typescript
-export function cosineSimilarity(a: number[], b: number[]): number
-
-export async function rebuildIndex(projectDir: string, config: Config): Promise<void>
-
 export async function searchKnowledge(
   projectDir: string,
   query: string,
-  topK: number,
-  config: Config
+  topK: number
 ): Promise<SearchResult[]>
 
 // SearchResult (from src/types.ts):
@@ -45,4 +36,4 @@ export async function searchKnowledge(
 ```
 
 ## Files
-- `src/search/engine.ts` — `searchKnowledge`, `rebuildIndex`, `cosineSimilarity`, staleness check, markdown stripper, section chunker
+- `src/search/engine.ts` — `searchKnowledge`, lexical scorer, markdown stripper, section chunker, tokenizer

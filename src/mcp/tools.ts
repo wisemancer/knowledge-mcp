@@ -2,13 +2,12 @@ import { readFile, writeFile } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { join, resolve, relative } from "path";
-import { type Config } from "../types.js";
 
 const execAsync = promisify(exec);
 import { readKnowledgeBase } from "../knowledge/reader.js";
 import { writeKnowledgeFile } from "../knowledge/writer.js";
-import { createOllamaClient } from "../ollama/client.js";
-import { rebuildIndex, searchKnowledge } from "../search/engine.js";
+import { verifyKnowledge } from "../knowledge/verify.js";
+import { searchKnowledge } from "../search/engine.js";
 import { initKnowledgeBase, generateKnowledgeBase, designProject } from "../scaffold/index.js";
 
 // MCP SDK imports
@@ -88,6 +87,11 @@ const DESIGN_PROJECT_SCHEMA = {
   required: ["idea"],
 } as const;
 
+const VERIFY_KNOWLEDGE_SCHEMA = {
+  type: "object",
+  properties: {},
+} as const;
+
 // Tool definitions for MCP
 export const TOOLS: { name: string; description: string; inputSchema: any }[] =
   [
@@ -112,7 +116,7 @@ export const TOOLS: { name: string; description: string; inputSchema: any }[] =
     {
       name: "update_knowledge",
       description:
-        "Update a knowledge module based on changed source files. Provides the current knowledge and changed files, and rewrites the module.",
+        "Update a knowledge module after source changes. Returns the current module doc plus the changed source files for you to reason over; you rewrite the doc and save it with write_knowledge_file. No external model.",
       inputSchema: UPDATE_KNOWLEDGE_SCHEMA,
     },
     {
@@ -130,7 +134,7 @@ export const TOOLS: { name: string; description: string; inputSchema: any }[] =
     {
       name: "write_knowledge_file",
       description:
-        'Write a file to the .knowledge/ directory. path is relative to .knowledge/ (e.g. "modules/auth.md"). Rebuilds the search index after writing. Call this after generate_knowledge_base returns source files and you have analyzed them.',
+        'Write a file to the .knowledge/ directory. path is relative to .knowledge/ (e.g. "canonical/modules/auth.md"). Call this after generate_knowledge_base returns source files and you have analyzed them.',
       inputSchema: WRITE_KNOWLEDGE_FILE_SCHEMA,
     },
     {
@@ -144,6 +148,12 @@ export const TOOLS: { name: string; description: string; inputSchema: any }[] =
       description:
         "Start a brand new project from a raw idea. Returns a structured design interview document with required gap markers (observability, tech stack, constraints, error handling). Claude resolves gaps with the user conversationally, then calls write_knowledge_file, init_knowledge_base, and write_plan. Call this before init_knowledge_base on a greenfield project.",
       inputSchema: DESIGN_PROJECT_SCHEMA,
+    },
+    {
+      name: "verify_knowledge",
+      description:
+        "Validate the .knowledge/ base against the standard KB architecture (canonical/derived layers, epistemic markers, citations, source tiers, guardrails). Read-only, mechanical pass/fail. Run after writing knowledge files as the Verifier step of the Writer->Reviewer->Verifier loop.",
+      inputSchema: VERIFY_KNOWLEDGE_SCHEMA,
     },
   ];
 
@@ -177,7 +187,6 @@ async function executeTool(
   toolName: string,
   params: Record<string, unknown>,
   projectDir: string,
-  config: Config,
 ): Promise<{
   isError: boolean;
   content: Array<{ type: string; text: string }>;
@@ -195,10 +204,16 @@ async function executeTool(
       const module = (params.module as string) || undefined;
       const files = await readKnowledgeBase(projectDir, module);
       const output = files
-        .map(
-          (f) =>
-            `---\nmodule: ${f.module}\nupdated: ${f.updated}\nfiles: ${JSON.stringify(f.files)}\n---\n\n${f.content}\n`,
-        )
+        .map((f) => {
+          const fm = [
+            `module: ${f.module}`,
+            ...(f.layer ? [`layer: ${f.layer}`] : []),
+            ...(f.tier ? [`tier: ${f.tier}`] : []),
+            `updated: ${f.updated}`,
+            `files: ${JSON.stringify(f.files)}`,
+          ].join("\n");
+          return `---\n${fm}\n---\n\n${f.content}\n`;
+        })
         .join("\n---\n\n");
 
       if (!module) {
@@ -221,7 +236,7 @@ async function executeTool(
     search_knowledge: async (params) => {
       const query = params.query as string;
       const topK = (params.top_k as number) || 5;
-      const results = await searchKnowledge(projectDir, query, topK, config);
+      const results = await searchKnowledge(projectDir, query, topK);
       const output = results
         .map(
           (r) =>
@@ -263,38 +278,30 @@ async function executeTool(
         }),
       );
 
-      // Build prompt for Ollama
-      const prompt = `Here is the current knowledge doc for module '${module}':
-${knowledge[0].content}
-
-Here are the changed source files:
-${changedFileContents.join("\n")}
-
-Rewrite the knowledge document to reflect the changes. Keep unchanged sections verbatim. Update the 'updated' field to today's date. Preserve the frontmatter structure.`;
-
-      // Call Ollama
-      const ollama = createOllamaClient(config);
-      const response = await ollama.generate(prompt);
-
-      // Extract content after frontmatter (remove existing frontmatter if present)
-      const cleaned = response.replace(/^---\n[\s\S]*?\n---\n/, "");
-
-      // Write result back to the original file path
+      // Agent-driven: return the current doc + changed source for the caller (Claude Code)
+      // to reason over and rewrite via write_knowledge_file. No external model.
       const kDir = join(resolve(projectDir), ".knowledge");
       const relPath = relative(kDir, knowledge[0].path);
-      await writeKnowledgeFile(
-        projectDir,
-        relPath,
-        `---\nmodule: ${module}\nupdated: ${new Date().toISOString().slice(0, 10)}\nfiles: []\n---\n\n${cleaned.trim()}\n`,
-      );
+      const layerLine = knowledge[0].layer ? `\nlayer: ${knowledge[0].layer}` : "";
+      const tierLine = knowledge[0].tier ? `\ntier: ${knowledge[0].tier}` : "";
 
-      // Rebuild index
-      await rebuildIndex(projectDir, config);
+      const output = [
+        `Current knowledge doc for module '${module}' (.knowledge/${relPath}):`,
+        "",
+        knowledge[0].content,
+        "",
+        "Changed source files:",
+        changedFileContents.join("\n"),
+        "",
+        "---",
+        `Rewrite the doc to reflect these changes, then save it by calling write_knowledge_file("${relPath}", <new content>).`,
+        "Keep unchanged sections verbatim. Preserve the standard: markers on every claim, citations on every [EXPLICIT], canonical/derived layer and tier honored.",
+        `Use this frontmatter (update the date to today):`,
+        `---\nmodule: ${module}${layerLine}${tierLine}\nupdated: <YYYY-MM-DD>\nfiles: ${JSON.stringify(knowledge[0].files)}\n---`,
+        "Then run verify_knowledge and fix any BLOCK.",
+      ].join("\n");
 
-      return createToolResponse(
-        toolName,
-        `Knowledge for module '${module}' updated successfully`,
-      );
+      return createToolResponse(toolName, output);
     },
 
     init_knowledge_base: async (params) => {
@@ -321,7 +328,6 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
       const path = params.path as string;
       const content = params.content as string;
       await writeKnowledgeFile(projectDir, path, content);
-      await rebuildIndex(projectDir, config);
       return createToolResponse(toolName, `Written: .knowledge/${path}`);
     },
 
@@ -329,6 +335,38 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
       const idea = params.idea as string;
       const output = designProject(idea);
       return createToolResponse(toolName, output);
+    },
+
+    verify_knowledge: async () => {
+      const report = await verifyKnowledge(projectDir);
+      const blocks = report.findings.filter((f) => f.severity === "BLOCK");
+      const flags = report.findings.filter((f) => f.severity === "FLAG");
+      const summary = `verify_knowledge: ${report.pass ? "PASS" : "FAIL"} — ${blocks.length} BLOCK, ${flags.length} FLAG across ${report.filesChecked} files`;
+
+      if (report.findings.length === 0) {
+        return createToolResponse(
+          toolName,
+          `${summary}\n\nNo issues found. The knowledge base conforms to the standard.`,
+        );
+      }
+
+      const byFile = new Map<string, typeof report.findings>();
+      for (const f of [...blocks, ...flags]) {
+        const list = byFile.get(f.file) ?? [];
+        list.push(f);
+        byFile.set(f.file, list);
+      }
+      const detail = [...byFile.entries()]
+        .map(
+          ([file, fs]) =>
+            `${file}\n${fs.map((f) => `  [${f.severity}] ${f.code}: ${f.message}`).join("\n")}`,
+        )
+        .join("\n\n");
+
+      const note =
+        "\n\nManual review still required: KG2 (assumption laundering — a marker present in canonical dropped in derived) and KG5 (a critical claim resting on a single ambiguous source) are not mechanically checked.";
+
+      return createToolResponse(toolName, `${summary}\n\n${detail}${note}`);
     },
 
     verify_project: async (params) => {
@@ -400,11 +438,7 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
   }
 }
 
-export function registerTools(
-  server: Server,
-  projectDir: string,
-  config: Config,
-): void {
+export function registerTools(server: Server, projectDir: string): void {
   // Register tool listing
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS,
@@ -413,7 +447,7 @@ export function registerTools(
   // Register tool execution
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: params } = request.params;
-    const result = await executeTool(name, params || {}, projectDir, config);
+    const result = await executeTool(name, params || {}, projectDir);
     return result;
   });
 }

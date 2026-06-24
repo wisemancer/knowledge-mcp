@@ -1,3 +1,6 @@
+# Legacy knowledge-mcp vector index (removed; search is now lexical)
+.knowledge/.index.json
+
 # Logs
 logs
 *.log

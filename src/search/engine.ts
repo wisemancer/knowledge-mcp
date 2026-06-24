@@ -1,9 +1,14 @@
-import { stat } from 'fs/promises';
-import { join, resolve } from 'path';
-import { type Config, type SearchResult, type VectorEntry } from '../types.js';
+import { type SearchResult } from '../types.js';
 import { readKnowledgeBase } from '../knowledge/reader.js';
-import { createOllamaClient } from '../ollama/client.js';
-import { loadIndex, saveIndex, upsertEntries } from './vector-store.js';
+
+const STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'is', 'are', 'for', 'on',
+  'with', 'how', 'do', 'i', 'it', 'this', 'that', 'be', 'by', 'as', 'at',
+]);
+
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(t => t.length > 1);
+}
 
 function stripMarkdown(text: string): string {
   return text
@@ -26,62 +31,51 @@ function chunkFile(file: { module: string; content: string }): Array<{ module: s
     .filter(c => c.text.length > 20);
 }
 
-async function isIndexStale(projectDir: string): Promise<boolean> {
-  const idxPath = join(resolve(projectDir), '.knowledge', '.index.json');
-  let idxMtime: number;
-  try {
-    idxMtime = (await stat(idxPath)).mtimeMs;
-  } catch {
-    return true;
-  }
-  const files = await readKnowledgeBase(projectDir);
-  for (const f of files) {
-    if ((await stat(f.path)).mtimeMs > idxMtime) return true;
-  }
-  return false;
-}
+/**
+ * Lexical relevance: query-term coverage plus a small term-frequency density bonus,
+ * with a heading-match boost. No embeddings, no external model. Score is bounded ~[0, 1].
+ */
+function scoreSection(
+  queryTerms: string[],
+  section: { section: string; text: string },
+): number {
+  const tokens = tokenize(section.text);
+  if (tokens.length === 0) return 0;
+  const freq = new Map<string, number>();
+  for (const t of tokens) freq.set(t, (freq.get(t) ?? 0) + 1);
+  const headingTokens = new Set(tokenize(section.section));
 
-export function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] ** 2;
-    nb += b[i] ** 2;
+  let matched = 0;
+  let occurrences = 0;
+  let headingHits = 0;
+  for (const term of queryTerms) {
+    const tf = freq.get(term) ?? 0;
+    if (tf > 0) matched++;
+    occurrences += tf;
+    if (headingTokens.has(term)) headingHits++;
   }
-  return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-10);
-}
+  if (matched === 0) return 0;
 
-export async function rebuildIndex(projectDir: string, config: Config): Promise<void> {
-  const ollama = createOllamaClient(config);
-  const files = await readKnowledgeBase(projectDir);
-  const chunks = files.flatMap(chunkFile);
-  const entries: VectorEntry[] = await Promise.all(
-    chunks.map(async chunk => ({
-      id: `${chunk.module}::${chunk.section}`,
-      module: chunk.module,
-      section: chunk.section,
-      text: chunk.text,
-      embedding: await ollama.embed(chunk.text),
-    }))
-  );
-  await saveIndex(projectDir, upsertEntries({ version: 1, entries: [] }, entries));
+  const coverage = matched / queryTerms.length;
+  const density = Math.min(0.2, occurrences / tokens.length);
+  const headingBoost = Math.min(0.2, (headingHits / queryTerms.length) * 0.2);
+  return Math.min(1, coverage * 0.7 + density + headingBoost);
 }
 
 export async function searchKnowledge(
   projectDir: string,
   query: string,
   topK: number,
-  config: Config,
 ): Promise<SearchResult[]> {
-  if (await isIndexStale(projectDir)) await rebuildIndex(projectDir, config);
-  const index = await loadIndex(projectDir);
-  const ollama = createOllamaClient(config);
-  const qVec = await ollama.embed(query);
-  const scored: SearchResult[] = index.entries.map(e => ({
-    module: e.module,
-    section: e.section,
-    text: e.text,
-    score: cosineSimilarity(qVec, e.embedding),
-  }));
+  const queryTerms = tokenize(query).filter(t => !STOPWORDS.has(t));
+  if (queryTerms.length === 0) return [];
+
+  const files = await readKnowledgeBase(projectDir);
+  const chunks = files.flatMap(chunkFile);
+
+  const scored: SearchResult[] = chunks
+    .map(c => ({ module: c.module, section: c.section, text: c.text, score: scoreSection(queryTerms, c) }))
+    .filter(r => r.score > 0);
+
   return scored.sort((a, b) => b.score - a.score).slice(0, topK);
 }

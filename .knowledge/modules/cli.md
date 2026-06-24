@@ -9,25 +9,24 @@ Commander.js CLI entrypoint. Maps subcommands (`init`, `generate`, `update`, `se
 
 ## Decisions
 - **`src/index.ts` as universal entrypoint**: If `process.argv[2]` is `serve`, `server`, or absent, start the MCP server (MCP clients invoke the binary with no args; `serve`/`server` are explicit aliases). Any other value is routed to the CLI module.
-- **CLI imports nothing from `src/mcp/`**: `cli/index.ts` calls `startServer` via `src/index.ts` routing, not a direct import. This prevents CLI from pulling in MCP server code unnecessarily.
-- **Config loaded in `index.ts`**: Both paths (MCP and CLI) need config. Load it once in `index.ts`, pass to whichever path is taken.
-- **`update [module]` with Ollama**: Calls `readKnowledgeBase` to get the target module, reads its source files, calls `OllamaClient.generate` with a regeneration prompt, writes the result back.
+- **CLI imports nothing from `src/mcp/`**: `cli/index.ts` calls `startServer` via dynamic import inside the `serve` action, not a top-level import. This prevents CLI from pulling in MCP server code unnecessarily.
+- **No config**: The tool is standalone (no external model), so there is no config to load. `index.ts` routes on argv only. See `decisions/008-standalone-mcp.md`.
+- **`update <module>` is agent-driven**: Calls `readKnowledgeBase` for the target module, reads the changed source files, and prints the current doc + changed source for an agent to rewrite. No model call.
 
 ## Patterns
 ```typescript
 // src/index.ts (simplified)
-const config = await loadConfig();
 const arg = process.argv[2];
 if (!arg || arg === 'serve' || arg === 'server') {
-  await startServer(config);
+  await startServer();
 } else {
-  await runCLI(config, process.argv.slice(2));  // pre-sliced; see decisions/004-cli-argv-parsing
+  await runCLI(process.argv.slice(2));  // pre-sliced; see decisions/004-cli-argv-parsing
 }
 ```
 
 `runCLI` receives a pre-sliced argv (no `node` path, no script path). `program.parseAsync` must be called with `{ from: 'user' }` to prevent Commander from stripping two more elements. See `decisions/004-cli-argv-parsing.md`.
 
-The `generate` command delegates entirely to `generateKnowledgeBase` from `src/scaffold/index.ts`. The CLI does not reimplement file collection or Claude calls.
+The `generate` command delegates entirely to `generateKnowledgeBase` from `src/scaffold/index.ts`. The CLI does not reimplement file collection.
 
 ## Constraints
 - All CLI errors: `process.stderr.write(msg + '\n'); process.exit(1)`.
@@ -38,16 +37,16 @@ The `generate` command delegates entirely to `generateKnowledgeBase` from `src/s
 ## Interfaces
 ```typescript
 // src/cli/index.ts
-export async function runCLI(config: Config, argv: string[]): Promise<void>
+export async function runCLI(argv: string[]): Promise<void>
 
 // Commands:
 // init [projectName]            — calls initKnowledgeBase(cwd, projectName)
-// generate [-d <dir...>]        — delegates to generateKnowledgeBase(cwd, config, dirs) in scaffold
-// update [module]               — updates one or all modules via Ollama
-// search <query> [--top <n>]    — calls searchKnowledge, prints results
-// serve                         — calls startServer(config)
+// generate -d <dir...>          — delegates to generateKnowledgeBase(cwd, dirs) in scaffold
+// update <module> [-f <files>]  — prints current doc + changed source for an agent to rewrite
+// search <query> [-k <n>]       — calls searchKnowledge (lexical), prints results
+// serve                         — calls startServer()
 ```
 
 ## Files
-- `src/index.ts` — shebang, `loadConfig`, mode routing to `startServer` or `runCLI`
+- `src/index.ts` — shebang, argv mode routing to `startServer` or `runCLI`
 - `src/cli/index.ts` — commander `program`, all command definitions and handlers

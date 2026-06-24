@@ -1,14 +1,16 @@
 ---
 module: decisions/001-json-vector-store
-updated: 2026-04-28
-files: [src/search/vector-store.ts]
+updated: 2026-06-24
+files: []
 ---
 
 ## Decision
-Use a plain JSON file (`.knowledge/.index.json`) as the vector store for semantic search indexing.
+~~Use a plain JSON file (`.knowledge/.index.json`) as the vector store for semantic search indexing.~~
+
+**Superseded (2026-06-24) by `decisions/008-standalone-mcp`:** semantic search and its embedding model were removed entirely. `search_knowledge` is now dependency-free lexical scoring with no vector store and no index file. `src/search/vector-store.ts` deleted.
 
 ## Status
-Accepted
+Superseded
 
 ## Context
 Semantic search requires storing embedding vectors and querying them by similarity. Options evaluated:
