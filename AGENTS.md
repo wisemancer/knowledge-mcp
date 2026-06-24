@@ -15,6 +15,13 @@ Every feature must have logging, tracing, and metrics defined in `.knowledge/der
 ## Environment Rule
 Always use Docker for services, databases, and tools — never install software directly on the host.
 
+## Security
+- Never read `.env` files or any files that may contain secrets (e.g. `.env.local`, `.env.production`, `*.env`). Use `.env.example` files to understand available variables instead.
+
+## Collaboration
+- Don't take the user's statements at face value when something seems off. If a reported behavior contradicts the code, investigate before acting. Push back when the reasoning is unclear or the proposed fix doesn't match the actual problem.
+- The goal is to make the user better, not just to complete tasks. Point out when an approach has a flaw, when a simpler solution exists, or when a change is unnecessary.
+
 ## Build & Install
 ```bash
 npm run build        # compile TypeScript → dist/, set shebang executable
@@ -32,7 +39,7 @@ Globally-installable MCP server and CLI tool. Maintains a `.knowledge/` director
 ## Key Constraints
 - `process.stdout` is reserved for MCP stdio protocol — all logs and diagnostics go to `process.stderr`.
 - MCP tools may only write to: `AGENTS.md`, `PLAN.md`, and files under `.knowledge/`. Never write outside these.
-- Config is global (`~/.knowledge-mcp/config.json`). Knowledge is local (project `.knowledge/`).
+- No external model or global config — the tool runs standalone inside Claude Code. Knowledge is local (project `.knowledge/`).
 - All file I/O via `fs/promises` — no sync fs.
-- No `any` — use `unknown` at boundaries, narrow with Zod or type guards.
+- No `any` — use `unknown` at boundaries, narrow with type guards.
 - All shared types live in `src/types.ts` — never define types inline in implementation files.

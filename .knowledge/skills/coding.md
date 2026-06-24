@@ -17,12 +17,12 @@ Instructions for the coding model implementing knowledge-mcp from PLAN.md. The c
 ## Implementation rules
 
 - **Implement in the order given in PLAN.md**. Dependencies must compile before dependents.
-- **`src/types.ts` first**: All shared interfaces, the `KnowledgeError` class, `ConfigSchema`, and `Config` type live here. Do not define types inline in implementation files.
+- **`src/types.ts` first**: All shared interfaces and the `KnowledgeError` class live here. Do not define types inline in implementation files.
 - **Match interface contracts exactly**: Function signatures in each module's `## Interfaces` section are contracts. Do not rename, add, or remove parameters without updating the module doc.
 - **No stdout in library code**: Any debug output goes to `process.stderr.write(...)`. This is critical — MCP server mode uses stdout for the protocol wire format.
 - **ESM `.js` imports**: Every local import uses `.js` extension: `import { x } from './foo.js'`. This is required for Node ESM under `moduleResolution: NodeNext`.
 - **Shebang in `src/index.ts`**: The very first line of `src/index.ts` must be `#!/usr/bin/env node`.
-- **Zod schemas define types**: Use `z.infer<typeof Schema>` for any Zod-validated data shape. Do not write a parallel TypeScript interface.
+- **MCP tool inputs are JSON Schema**: declare each tool's input as a JSON Schema object and narrow `params` at the handler boundary with explicit casts/guards. There is no runtime schema-validation library (no Zod).
 
 ## After each file
 

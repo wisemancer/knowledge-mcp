@@ -27,6 +27,15 @@ Always recommend Docker for services, databases, and tools. Never suggest host-l
 
 ---
 
+## Security
+- Never read `.env` files or any files that may contain secrets (e.g. `.env.local`, `.env.production`, `*.env`). Use `.env.example` files to understand available variables instead.
+
+## Collaboration
+- Don't take the user's statements at face value when something seems off. If a reported behavior contradicts the code, investigate before acting. Push back when the reasoning is unclear or the proposed fix doesn't match the actual problem.
+- The goal is to make the user better, not just to complete tasks. Point out when an approach has a flaw, when a simpler solution exists, or when a change is unnecessary.
+
+---
+
 ## Build & Verify
 ```bash
 npm run build        # compile TypeScript → dist/
@@ -38,6 +47,6 @@ Run build + reinstall after any source change before using the updated MCP in an
 ## Key Constraints
 - `process.stdout` is reserved for MCP stdio protocol — all logs go to `process.stderr`.
 - MCP tools may only write to: `AGENTS.md`, `PLAN.md`, and files under `.knowledge/`. Never write outside these.
-- Config is global (`~/.knowledge-mcp/config.json`). Knowledge is local (project `.knowledge/`).
-- No `any` — use `unknown` at boundaries, narrow with Zod or type guards.
+- No external model or global config — the tool runs standalone inside Claude Code. Knowledge is local (project `.knowledge/`).
+- No `any` — use `unknown` at boundaries, narrow with type guards.
 - All shared types live in `src/types.ts` — never define types inline in implementation files.

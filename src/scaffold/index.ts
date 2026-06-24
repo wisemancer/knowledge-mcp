@@ -271,6 +271,13 @@ Every feature must have logging, tracing, and metrics defined in \`.knowledge/co
 ### Gate 4: Docker for all services
 Always recommend Docker for services, databases, and tools. Never suggest host-level installs.
 
+## Security
+- Never read \`.env\` files or any files that may contain secrets (e.g. \`.env.local\`, \`.env.production\`, \`*.env\`). Use \`.env.example\` files to understand available variables instead.
+
+## Collaboration
+- Don't take the user's statements at face value when something seems off. If a reported behavior contradicts the code, investigate before acting. Push back when the reasoning is unclear or the proposed fix doesn't match the actual problem.
+- The goal is to make the user better, not just to complete tasks. Point out when an approach has a flaw, when a simpler solution exists, or when a change is unnecessary.
+
 ## Build & Verify
 - \`<add build command>\`
 - \`<add verify command>\`
@@ -295,6 +302,13 @@ Every feature must have logging, tracing, and metrics defined in \`.knowledge/co
 
 ## Environment Rule
 Always use Docker for services, databases, and tools — never install software directly on the host.
+
+## Security
+- Never read \`.env\` files or any files that may contain secrets (e.g. \`.env.local\`, \`.env.production\`, \`*.env\`). Use \`.env.example\` files to understand available variables instead.
+
+## Collaboration
+- Don't take the user's statements at face value when something seems off. If a reported behavior contradicts the code, investigate before acting. Push back when the reasoning is unclear or the proposed fix doesn't match the actual problem.
+- The goal is to make the user better, not just to complete tasks. Point out when an approach has a flaw, when a simpler solution exists, or when a change is unnecessary.
 
 ## Build & Verify
 - \`<add build command>\`
