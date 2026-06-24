@@ -12,7 +12,7 @@ Initializes the MCP server, registers all ten tools with their input schemas and
 ## Decisions
 - **`tools.ts` handles all ten tools**: `server.ts` is wiring only (`new Server`, `registerTools`, `connect`). Keeping tools together makes the tool surface easy to audit.
 - **`cwd` captured at startup**: `process.cwd()` is resolved once when the server starts. MCP clients cannot change the working directory mid-session.
-- **Zod validation inside each handler**: each handler parses `request.params.arguments` through its Zod schema before any logic. Invalid input returns `isError: true`, never throws.
+- **Input narrowing inside each handler**: each handler reads `request.params.arguments` and narrows fields with explicit casts/guards before any logic. Invalid input returns `isError: true`, never throws.
 - **`setRequestHandler` API**: uses `ListToolsRequestSchema` + `CallToolRequestSchema`. Tool input schemas are JSON Schema objects (MCP protocol requirement), not Zod.
 
 ## Patterns — Tool Behaviours

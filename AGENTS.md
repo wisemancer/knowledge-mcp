@@ -39,7 +39,7 @@ Globally-installable MCP server and CLI tool. Maintains a `.knowledge/` director
 ## Key Constraints
 - `process.stdout` is reserved for MCP stdio protocol — all logs and diagnostics go to `process.stderr`.
 - MCP tools may only write to: `AGENTS.md`, `PLAN.md`, and files under `.knowledge/`. Never write outside these.
-- Config is global (`~/.knowledge-mcp/config.json`). Knowledge is local (project `.knowledge/`).
+- No external model or global config — the tool runs standalone inside Claude Code. Knowledge is local (project `.knowledge/`).
 - All file I/O via `fs/promises` — no sync fs.
-- No `any` — use `unknown` at boundaries, narrow with Zod or type guards.
+- No `any` — use `unknown` at boundaries, narrow with type guards.
 - All shared types live in `src/types.ts` — never define types inline in implementation files.

@@ -47,6 +47,6 @@ Run build + reinstall after any source change before using the updated MCP in an
 ## Key Constraints
 - `process.stdout` is reserved for MCP stdio protocol — all logs go to `process.stderr`.
 - MCP tools may only write to: `AGENTS.md`, `PLAN.md`, and files under `.knowledge/`. Never write outside these.
-- Config is global (`~/.knowledge-mcp/config.json`). Knowledge is local (project `.knowledge/`).
-- No `any` — use `unknown` at boundaries, narrow with Zod or type guards.
+- No external model or global config — the tool runs standalone inside Claude Code. Knowledge is local (project `.knowledge/`).
+- No `any` — use `unknown` at boundaries, narrow with type guards.
 - All shared types live in `src/types.ts` — never define types inline in implementation files.
