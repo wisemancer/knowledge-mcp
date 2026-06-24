@@ -1,7 +1,6 @@
 import { readFile, writeFile, mkdir, access, readdir, stat } from "fs/promises";
 import { constants } from "fs";
 import { join, resolve, relative, dirname, extname } from "path";
-import { type Config } from "../types.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -10,6 +9,8 @@ function today(): string {
 function TEMPLATE_ARCHITECTURE(projectName: string): string {
   return `---
 module: architecture
+layer: canonical
+tier: T1
 updated: ${today()}
 files: []
 ---
@@ -17,12 +18,17 @@ files: []
 ## Purpose
 ${projectName} — describe what this project does and why it exists. One paragraph covering the problem it solves and the core design intent.
 
+> CANONICAL layer: state only facts verifiable in source. Mark every claim.
+> Markers: [EXPLICIT] (a fact in source — MUST cite path or path:line, e.g. \`src/app.ts:42\`),
+> [INFERRED:strong|weak] (deduced — cite the signal), [ASSUMED] (gap fill), [MISSING_INFO].
+> Replace the placeholders below; once you cite real source, switch the marker to [EXPLICIT].
+
 ## Decisions
-- **<key architectural choice>**: <why this approach>. Alternatives considered: <what was rejected and why>.
-- **<another choice>**: <rationale>. Alternatives considered: <rejected options>.
+- **<key architectural choice>**: <why>. [ASSUMED]
+- **<another choice>**: <rationale>. [INFERRED:weak] (naming in <where>)
 
 ## Patterns
-Describe the primary data flow or request lifecycle at a high level. How do the major components interact?
+Describe the primary data flow or request lifecycle. Cite the wiring you can see in source.
 
 \`\`\`
 ComponentA ──► ComponentB ──► ComponentC
@@ -33,8 +39,8 @@ ComponentA ──► ComponentB ──► ComponentC
 - Never expose <thing> outside <boundary>.
 
 ## Tech Stack
-- Language/runtime — why
-- Key framework — why
+- Language/runtime — and why. [ASSUMED]
+- Key framework — and why. [ASSUMED]
 - Key dependencies — what each provides
 `;
 }
@@ -42,6 +48,8 @@ ComponentA ──► ComponentB ──► ComponentC
 function TEMPLATE_CONVENTIONS(): string {
   return `---
 module: conventions
+layer: derived
+tier: T2
 updated: ${today()}
 files: [src/**/*.ts]
 ---
@@ -85,6 +93,8 @@ src/  — describe your source layout here
 function TEMPLATE_MODULE(name: string): string {
   return `---
 module: ${name}
+layer: canonical
+tier: T1
 updated: ${today()}
 files: []
 ---
@@ -92,8 +102,11 @@ files: []
 ## Purpose
 What this module does and why it exists. One paragraph.
 
+> CANONICAL: mark every claim. Facts copied verbatim from source (e.g. an exported signature)
+> use [EXPLICIT] with a path:line citation; [INFERRED]/[ASSUMED] claims need no citation.
+
 ## Decisions
-- **<choice>**: <rationale>. Alternatives considered: <rejected options>.
+- **<choice>**: <rationale>. [INFERRED:weak] (naming in <where>)
 
 ## Patterns
 How to use this module correctly. Include a short code example.
@@ -108,8 +121,9 @@ How to use this module correctly. Include a short code example.
 - Always...
 
 ## Interfaces
+Copy exported signatures verbatim from source and cite each with a path:line (see the note above).
+
 \`\`\`typescript
-// Key exported functions and types
 export function exampleFunction(param: string): Promise<void>
 \`\`\`
 
@@ -121,6 +135,8 @@ export function exampleFunction(param: string): Promise<void>
 function TEMPLATE_DECISION(slug: string): string {
   return `---
 module: decisions/${slug}
+layer: derived
+tier: T2
 updated: ${today()}
 files: []
 ---
@@ -164,6 +180,66 @@ Instructions for the ${name} agent using this knowledge base.
 - Never skip the implementation order — dependencies must exist before dependents.
 - Do not read raw source files. Use \`read_knowledge_base\` and \`search_knowledge\` only. Source files are for the compiler; \`.knowledge/\` is for agents.
 - Do not skip \`write_plan\`. A plan described in conversation but not written to \`PLAN.md\` is not a plan.
+`;
+}
+
+function TEMPLATE_SOURCE_TIERS(): string {
+  return `---
+module: meta/source-tiers
+layer: meta
+updated: ${today()}
+files: []
+---
+
+## Purpose
+Source tiers rank the authority of the evidence behind a claim and cap how strong a marker may be.
+A canonical/derived file's \`tier\` frontmatter is the marker ceiling for every claim in it, set by
+the **lowest-authority** source that materially contributes.
+
+## Tier table (code-derived KB)
+| Tier | What qualifies | Marker ceiling |
+|------|----------------|----------------|
+| T1 | Executable source that compiles/runs; the manifest (package.json) | [EXPLICIT] |
+| T2 | Tests, type definitions, committed schema/config | [EXPLICIT] / [INFERRED:strong] |
+| T3 | Comments, docstrings, naming conventions | [INFERRED] only |
+| T4 | README prose, commit messages, external docs | context only, never a claim |
+| TX | Dead / rejected code | recorded here, never the basis of a claim |
+
+## Rules
+- Always set \`tier\` on every canonical and derived file.
+- Never raise a claim above its file's tier: [EXPLICIT] requires T1/T2; [INFERRED:strong] requires T2+.
+- Record TX (rejected/dead) material here with the reason it was excluded.
+
+## TX (rejected) material
+- <none yet>
+`;
+}
+
+function TEMPLATE_GUARDRAILS(): string {
+  return `---
+module: meta/guardrails
+layer: meta
+updated: ${today()}
+files: []
+---
+
+## Purpose
+Named anti-patterns the Reviewer checks before finishing and the \`verify_knowledge\` tool enforces
+where mechanically possible. BLOCK must be fixed before the KB is trusted; FLAG needs a human look.
+
+## Guardrails
+| ID | Anti-pattern | Severity | Checked by |
+|----|--------------|----------|------------|
+| KG1 | Fabrication — KB describes a module/behavior absent from source | BLOCK | citation existence (verify_knowledge) + reviewer |
+| KG2 | Assumption laundering — a marker present in canonical is dropped in derived | BLOCK | reviewer (manual) |
+| KG3 | Citation gap — [EXPLICIT] with no path / path:line | BLOCK | verify_knowledge |
+| KG4 | Marker inflation — everything [EXPLICIT] or everything [INFERRED] | FLAG | verify_knowledge |
+| KG5 | Single-source dependency — a critical claim rests on one ambiguous signal | FLAG | reviewer (manual) |
+| KG6 | Staleness — KB cites a file/symbol that no longer exists | FLAG | verify_knowledge |
+
+## How to use
+Writer writes → Reviewer re-reads each file against this table → Verifier (\`verify_knowledge\`) runs
+the mechanical checks. Do not skip the Reviewer pass for KG2/KG5 — they are not auto-detected.
 `;
 }
 
@@ -211,6 +287,9 @@ function TEMPLATE_AGENTS_MD(projectName: string): string {
 3. Call \`write_plan\` to record the implementation plan in \`PLAN.md\`.
 Only then write code — in the order defined in \`PLAN.md\`.
 
+## Knowledge Standard
+The KB is split into \`canonical/\` (facts verifiable in source) and \`derived/\` (analysis built on them); \`meta/\` holds the source-tier table and guardrails. Every claim carries a marker — [EXPLICIT] (cite \`path\`/\`path:line\`), [INFERRED:strong|weak], [ASSUMED], [MISSING_INFO] — and canonical always wins on conflict. After writing knowledge files, run \`verify_knowledge\`.
+
 ## Observability Gate
 Every feature must have logging, tracing, and metrics defined in \`.knowledge/conventions.md ## Observability\` before coding starts.
 
@@ -231,13 +310,15 @@ Always use Docker for services, databases, and tools — never install software 
 }
 
 const INIT_FILES: { path: string; content: string }[] = [
-  { path: "architecture.md", content: TEMPLATE_ARCHITECTURE("project") },
-  { path: "conventions.md", content: TEMPLATE_CONVENTIONS() },
-  { path: "modules/example.md", content: TEMPLATE_MODULE("example") },
+  { path: "canonical/architecture.md", content: TEMPLATE_ARCHITECTURE("project") },
+  { path: "canonical/modules/example.md", content: TEMPLATE_MODULE("example") },
+  { path: "derived/conventions.md", content: TEMPLATE_CONVENTIONS() },
   {
-    path: "decisions/001-example.md",
+    path: "derived/decisions/001-example.md",
     content: TEMPLATE_DECISION("001-example"),
   },
+  { path: "meta/SOURCE_TIERS.md", content: TEMPLATE_SOURCE_TIERS() },
+  { path: "meta/GUARDRAILS.md", content: TEMPLATE_GUARDRAILS() },
   { path: "skills/planning.md", content: TEMPLATE_SKILL("planning") },
   { path: "skills/coding.md", content: TEMPLATE_SKILL("coding") },
   { path: "skills/updater.md", content: TEMPLATE_SKILL("updater") },
@@ -271,7 +352,7 @@ export async function initKnowledgeBase(
   }
 
   const filesToWrite: { path: string; content: string }[] = [
-    { path: "architecture.md", content: TEMPLATE_ARCHITECTURE(name) },
+    { path: "canonical/architecture.md", content: TEMPLATE_ARCHITECTURE(name) },
     ...INIT_FILES.slice(1),
   ];
 
@@ -330,10 +411,32 @@ export async function generateKnowledgeBase(
   }
   lines.push("\n---");
   lines.push(
-    "Analyze the files above and call write_knowledge_file for each doc you generate.",
+    "Analyze the files above and call write_knowledge_file for each doc. Produce the STANDARD knowledge base:",
   );
-  lines.push(`Each knowledge file needs frontmatter (updated: ${today()}):`);
-  lines.push("---\nmodule: <name>\nupdated: <YYYY-MM-DD>\nfiles: [<globs>]\n---");
+  lines.push("");
+  lines.push(
+    "1. SPLIT BY LAYER. Facts verifiable in source go in canonical/ (canonical/architecture.md, canonical/modules/<name>.md). Analysis built on those facts — conventions, design rationale, observations — goes in derived/ (derived/conventions.md, derived/decisions/<n>.md). Canonical always wins on conflict.",
+  );
+  lines.push(
+    "2. MARK EVERY CLAIM with exactly one marker: [EXPLICIT] | [INFERRED:strong] | [INFERRED:weak] | [INFERRED] | [ASSUMED] | [MISSING_INFO]. Never leave a factual claim unmarked.",
+  );
+  lines.push(
+    "3. CITE EVERY [EXPLICIT] with a path or path:line (e.g. src/config.ts:42). No uncited [EXPLICIT].",
+  );
+  lines.push(
+    "4. RESPECT TIER CEILINGS (set `tier:` per file; see meta/SOURCE_TIERS.md): [EXPLICIT] needs T1/T2; [INFERRED:strong] needs T2+.",
+  );
+  lines.push(
+    "5. SELF-REVIEW each file against meta/GUARDRAILS.md (KG1-KG6) before finishing — you are the Reviewer, not just the Writer.",
+  );
+  lines.push(
+    "6. THEN call verify_knowledge and fix every BLOCK it reports.",
+  );
+  lines.push("");
+  lines.push(`Frontmatter for each file (updated: ${today()}):`);
+  lines.push(
+    "---\nmodule: <name>\nlayer: canonical|derived|meta\ntier: T1|T2|T3|T4\nupdated: <YYYY-MM-DD>\nfiles: [<globs>]\n---",
+  );
 
   return lines.join("\n");
 }
@@ -371,11 +474,19 @@ Every project must define its observability strategy before implementation begin
 ---
 ### Instructions for Claude
 Ask the user about each [GAP] above in order. Do not skip Observability — it is non-negotiable.
+
+This project uses the STANDARD knowledge base: canonical/ (facts verifiable in source) vs
+derived/ (analysis built on them), every claim carries a marker ([EXPLICIT] with a path/path:line
+citation, [INFERRED:strong|weak], [ASSUMED], [MISSING_INFO]), and each file declares a layer + tier.
+For a greenfield project most claims are design intent — mark them [ASSUMED] or [INFERRED] until
+source exists to make them [EXPLICIT].
+
 Once all gaps are resolved, execute this sequence exactly:
-1. Call write_knowledge_file("architecture.md", <fully filled content>)
-2. Call write_knowledge_file("conventions.md", <fully filled content, must include ## Observability section>)
-3. Call init_knowledge_base(project_name: "<name inferred from idea>") to scaffold remaining templates and AGENTS.md
-4. Call write_plan(<implementation plan for the first milestone>)
+1. Call init_knowledge_base(project_name: "<name inferred from idea>") to scaffold the canonical/derived/meta layout, AGENTS.md, and meta/SOURCE_TIERS.md + meta/GUARDRAILS.md
+2. Call write_knowledge_file("canonical/architecture.md", <filled content with layer/tier + markers>)
+3. Call write_knowledge_file("derived/conventions.md", <filled content, must include ## Observability section>)
+4. Call verify_knowledge and fix every BLOCK
+5. Call write_plan(<implementation plan for the first milestone>)
 Do not write any code until write_plan has been called and PLAN.md exists.
 `;
 }

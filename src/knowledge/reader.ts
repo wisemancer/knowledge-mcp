@@ -1,6 +1,9 @@
 import { readFile, readdir, stat } from 'fs/promises';
 import { join, resolve } from 'path';
-import { type KnowledgeFile } from '../types.js';
+import { type KnowledgeFile, type KnowledgeLayer, type SourceTier } from '../types.js';
+
+const LAYERS: KnowledgeLayer[] = ['canonical', 'derived', 'meta', 'skill'];
+const TIERS: SourceTier[] = ['T1', 'T2', 'T3', 'T4'];
 
 export function parseKnowledgeFile(raw: string, filePath: string): KnowledgeFile {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -13,10 +16,17 @@ export function parseKnowledgeFile(raw: string, filePath: string): KnowledgeFile
     ? filesRaw.split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
     : [];
 
+  const layerRaw = get('layer');
+  const tierRaw = get('tier');
+  const layer = LAYERS.includes(layerRaw as KnowledgeLayer) ? (layerRaw as KnowledgeLayer) : undefined;
+  const tier = TIERS.includes(tierRaw as SourceTier) ? (tierRaw as SourceTier) : undefined;
+
   return {
     module: get('module'),
     updated: get('updated'),
     files,
+    ...(layer ? { layer } : {}),
+    ...(tier ? { tier } : {}),
     content: body.trim(),
     path: filePath,
   };

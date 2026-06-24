@@ -1,6 +1,6 @@
 ---
 module: conventions
-updated: 2026-05-13
+updated: 2026-06-24
 files: [src/**/*.ts]
 ---
 
@@ -21,15 +21,15 @@ Coding standards for the knowledge-mcp TypeScript codebase. These are non-negoti
 
 ## Patterns
 - **ESM imports with `.js` extension**: `import { x } from './foo.js'`. TypeScript under `moduleResolution: NodeNext` resolves `.js` imports to `.ts` source files at compile time.
-- **Zod at system boundaries only**: Validate all MCP tool inputs and config file data with Zod. Internal functions receive already-typed values.
-- **Named exports only**: No default exports. One `index.ts` barrel per `src/<module>/` directory that re-exports the public API. Internal helpers are not exported from barrels.
+- **MCP tool inputs declared as JSON Schema**: Each tool's input shape is a JSON Schema object (MCP protocol requirement). Handlers narrow `params` at the boundary with explicit casts/guards. No Zod (the tool has no runtime schema-validation dependency).
+- **Named exports only**: No default exports. Internal helpers are not exported.
 - **Typed errors**: Throw `KnowledgeError` (extends `Error`) with a typed `code` field. MCP handlers catch and return `{ isError: true, content: [{ type: 'text', text: msg }] }`. CLI handlers catch and write to `process.stderr`, then `process.exit(1)`.
 
 ## Decisions
 - **No sync fs**: All file I/O via `fs/promises`. Sync methods forbidden.
-- **No `any`**: Use `unknown` at boundaries; narrow with Zod or type guards.
+- **No `any`**: Use `unknown` at boundaries; narrow with type guards.
 - **No `console.log`**: MCP uses stdout for wire-format protocol bytes. Use `process.stderr.write()` for all debug output.
-- **Types inferred from Zod**: `type Config = z.infer<typeof ConfigSchema>`. Do not write parallel TypeScript interfaces for Zod-validated data.
+- **No external model dependency**: The tool runs fully inside Claude Code — no Anthropic API, no Ollama, no embedding model. See `decisions/008-standalone-mcp`.
 
 ## Constraints
 - File names: kebab-case (`vector-store.ts`).
@@ -58,16 +58,14 @@ See `src/types.ts` for all shared types. Modules import from `'../types.js'`, ne
 
 ## Files
 ```
-src/types.ts              — all shared types, interfaces, error class, ConfigSchema
-src/config.ts             — config loading and defaults
+src/types.ts              — all shared types, interfaces, error class (no config)
 src/mcp/server.ts         — MCP Server + stdio transport startup
-src/mcp/tools.ts          — tool handler registrations (all 9 tools)
-src/knowledge/reader.ts   — read and parse .knowledge/ files
+src/mcp/tools.ts          — tool handler registrations (all 10 tools)
+src/knowledge/reader.ts   — read and parse .knowledge/ files (layer/tier frontmatter)
 src/knowledge/writer.ts   — write knowledge files with frontmatter
-src/search/engine.ts      — semantic search orchestration
-src/search/vector-store.ts — JSON vector index CRUD
-src/ollama/client.ts      — Ollama embed + generate HTTP client
+src/knowledge/verify.ts   — verify_knowledge: marker/citation/tier/guardrail checks
+src/search/engine.ts      — lexical search (no embeddings, no index)
 src/scaffold/index.ts     — init_knowledge_base + generate_knowledge_base + designProject
 src/cli/index.ts          — commander.js program + command handlers
-src/index.ts              — entrypoint (shebang, mode routing)
+src/index.ts              — entrypoint (shebang, argv mode routing)
 ```

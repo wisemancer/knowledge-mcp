@@ -1,18 +1,34 @@
-import { z } from "zod";
+export type Marker =
+  | "EXPLICIT"
+  | "INFERRED:strong"
+  | "INFERRED:weak"
+  | "INFERRED"
+  | "ASSUMED"
+  | "MISSING_INFO";
 
-export const ConfigSchema = z.object({
-  ollama_host: z.string().default("http://localhost:11434"),
-  ollama_model: z.string().default("qwen2.5-coder:7b"),
-  embed_model: z.string().default("nomic-embed-text"),
-  anthropic_api_key: z.string().optional(),
-  claude_model: z.string().default("claude-sonnet-4-6"),
-});
-export type Config = z.infer<typeof ConfigSchema>;
+export type KnowledgeLayer = "canonical" | "derived" | "meta" | "skill";
+
+export type SourceTier = "T1" | "T2" | "T3" | "T4";
 
 export interface KnowledgeMeta {
   module: string;
   updated: string;
   files: string[];
+  layer?: KnowledgeLayer;
+  tier?: SourceTier;
+}
+
+export interface KnowledgeFinding {
+  file: string; // path relative to .knowledge/
+  severity: "BLOCK" | "FLAG";
+  code: string; // KG1..KG6 or a structural code
+  message: string;
+}
+
+export interface KnowledgeVerifyReport {
+  pass: boolean; // true when no BLOCK findings
+  filesChecked: number;
+  findings: KnowledgeFinding[];
 }
 
 export interface KnowledgeFile extends KnowledgeMeta {
@@ -20,32 +36,17 @@ export interface KnowledgeFile extends KnowledgeMeta {
   path: string; // absolute filesystem path
 }
 
-export interface VectorEntry {
-  id: string; // "${module}::${sectionHeading}"
-  module: string;
-  section: string;
-  text: string; // stripped plain text (no markdown syntax)
-  embedding: number[];
-}
-
-export interface VectorIndex {
-  version: 1;
-  entries: VectorEntry[];
-}
-
 export interface SearchResult {
   module: string;
   section: string;
   text: string;
-  score: number; // cosine similarity in [0, 1]
+  score: number; // lexical relevance, bounded ~[0, 1]
 }
 
 export type ErrorCode =
   | "CONFIG_NOT_FOUND"
   | "KNOWLEDGE_DIR_NOT_FOUND"
   | "MODULE_NOT_FOUND"
-  | "OLLAMA_UNAVAILABLE"
-  | "EMBED_FAILED"
   | "INVALID_INPUT";
 
 export class KnowledgeError extends Error {

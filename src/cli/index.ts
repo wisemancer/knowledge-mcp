@@ -1,14 +1,11 @@
 import { Command } from 'commander';
 import { readKnowledgeBase } from '../knowledge/reader.js';
-import { writeKnowledgeFile } from '../knowledge/writer.js';
-import { rebuildIndex, searchKnowledge } from '../search/engine.js';
+import { searchKnowledge } from '../search/engine.js';
 import { initKnowledgeBase, generateKnowledgeBase } from '../scaffold/index.js';
-import { createOllamaClient } from '../ollama/client.js';
-import { type Config } from '../types.js';
 import { readFile } from 'fs/promises';
 import { join, resolve, relative } from 'path';
 
-export async function runCLI(config: Config, args: string[]): Promise<void> {
+export async function runCLI(args: string[]): Promise<void> {
   const program = new Command();
 
   program
@@ -85,28 +82,25 @@ export async function runCLI(config: Config, args: string[]): Promise<void> {
             )
           : ['[No changed files provided]'];
 
-        const prompt = `Here is the current knowledge doc for module '${module}':
-${knowledgeFiles[0].content}
-
-Here are the changed source files:
-${changedFileContents.join('\n')}
-
-Rewrite the knowledge document to reflect the changes. Keep unchanged sections verbatim. Update the 'updated' field to today's date. Preserve the frontmatter structure.`;
-
-        const ollama = createOllamaClient(config);
-        const response = await ollama.generate(prompt);
-        const cleaned = response.replace(/^---\n[\s\S]*?\n---\n/, '');
-
+        // Standalone MCP: no external model. Emit the current doc + changed source so the
+        // operator (or an agent) can rewrite the doc. Mirrors the update_knowledge MCP tool.
         const kDir = join(resolve(projectDir), '.knowledge');
         const relPath = relative(kDir, knowledgeFiles[0].path);
-        await writeKnowledgeFile(
-          projectDir,
-          relPath,
-          `---\nmodule: ${module}\nupdated: ${new Date().toISOString().slice(0, 10)}\nfiles: []\n---\n\n${cleaned.trim()}\n`,
+        process.stdout.write(
+          [
+            `Current knowledge doc for module '${module}' (.knowledge/${relPath}):`,
+            '',
+            knowledgeFiles[0].content,
+            '',
+            'Changed source files:',
+            changedFileContents.join('\n'),
+            '',
+            '---',
+            `Rewrite the doc to reflect these changes and save it to .knowledge/${relPath}.`,
+            'Keep unchanged sections verbatim; preserve markers, citations, layer and tier.',
+            '',
+          ].join('\n'),
         );
-
-        await rebuildIndex(projectDir, config);
-        process.stdout.write(`Knowledge for module '${module}' updated successfully\n`);
       } catch (error) {
         process.stderr.write(`Error updating knowledge: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
@@ -123,7 +117,7 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
       try {
         const projectDir = opts?.dir ?? process.cwd();
         const topK = parseInt(opts?.topK ?? '5', 10);
-        const results = await searchKnowledge(projectDir, query, topK, config);
+        const results = await searchKnowledge(projectDir, query, topK);
 
         if (results.length === 0) {
           process.stdout.write('No results found.\n');
@@ -147,7 +141,7 @@ Rewrite the knowledge document to reflect the changes. Keep unchanged sections v
     .action(async () => {
       const { startServer } = await import('../mcp/server.js');
       try {
-        await startServer(config);
+        await startServer();
       } catch (error) {
         process.stderr.write(`Error starting MCP server: ${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
