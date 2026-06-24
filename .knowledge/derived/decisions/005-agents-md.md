@@ -1,5 +1,7 @@
 ---
 module: decisions/005-agents-md
+layer: derived
+tier: T2
 updated: 2026-05-04
 files: [src/scaffold/index.ts, src/mcp/tools.ts]
 ---

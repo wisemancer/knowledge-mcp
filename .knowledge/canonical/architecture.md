@@ -1,5 +1,7 @@
 ---
 module: architecture
+layer: canonical
+tier: T1
 updated: 2026-06-24
 files: [src/index.ts, src/types.ts]
 ---

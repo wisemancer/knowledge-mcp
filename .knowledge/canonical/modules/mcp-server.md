@@ -1,5 +1,7 @@
 ---
 module: mcp-server
+layer: canonical
+tier: T1
 updated: 2026-06-24
 files: ["src/mcp/server.ts","src/mcp/tools.ts"]
 ---

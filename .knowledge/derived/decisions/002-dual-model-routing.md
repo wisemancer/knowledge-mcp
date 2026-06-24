@@ -1,5 +1,7 @@
 ---
 module: decisions/002-dual-model-routing
+layer: derived
+tier: T2
 updated: 2026-06-24
 files: [src/scaffold/index.ts]
 ---

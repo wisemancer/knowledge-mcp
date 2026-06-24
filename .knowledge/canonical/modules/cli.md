@@ -1,5 +1,7 @@
 ---
 module: cli
+layer: canonical
+tier: T1
 updated: 2026-05-04
 files: [src/cli/index.ts, src/index.ts]
 ---

@@ -1,5 +1,7 @@
 ---
 module: conventions
+layer: derived
+tier: T2
 updated: 2026-06-24
 files: [src/**/*.ts]
 ---

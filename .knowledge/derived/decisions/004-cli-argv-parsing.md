@@ -1,5 +1,7 @@
 ---
 module: decisions/004-cli-argv-parsing
+layer: derived
+tier: T2
 updated: 2026-05-04
 files: [src/index.ts, src/cli/index.ts]
 ---

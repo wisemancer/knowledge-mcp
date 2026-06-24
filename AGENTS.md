@@ -10,7 +10,7 @@ Only then write code — in the order defined in `PLAN.md`.
 During planning and implementation, read `.knowledge/` files via `read_knowledge_base` and `search_knowledge` only. Never read raw source files directly.
 
 ## Observability Gate
-Every feature must have logging, tracing, and metrics defined in `.knowledge/conventions.md ## Observability` before coding starts.
+Every feature must have logging, tracing, and metrics defined in `.knowledge/derived/conventions.md ## Observability` before coding starts.
 
 ## Environment Rule
 Always use Docker for services, databases, and tools — never install software directly on the host.

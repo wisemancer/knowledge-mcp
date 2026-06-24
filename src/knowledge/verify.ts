@@ -69,19 +69,27 @@ async function checkFile(
     let inferredCount = 0;
     const missingCites = new Set<string>();
 
+    let inFence = false;
     for (const line of lines) {
-      // Blockquote lines are legends/notes, not claims — skip marker checks.
+      // Fenced code blocks are examples/diagrams, not claims.
+      if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+      if (inFence) continue;
+      // Blockquote lines are legends/notes, not claims.
       if (line.trim().startsWith(">")) continue;
 
-      // Unknown markers.
-      for (const m of line.matchAll(MARKER_SHAPE)) {
+      // A marker wrapped in inline code (`[EXPLICIT]`) is a *reference* to the token, not a
+      // live claim — strip inline-code spans before detecting claim markers.
+      const prose = line.replace(/`[^`]*`/g, " ");
+
+      // Unknown markers (on prose only).
+      for (const m of prose.matchAll(MARKER_SHAPE)) {
         if (!KNOWN_MARKERS.has(m[1])) add("FLAG", "MARKER", `Unknown marker token \`[${m[1]}]\`.`);
       }
 
-      const hasExplicit = line.includes("[EXPLICIT]");
-      const hasInferredStrong = line.includes("[INFERRED:strong]");
+      const hasExplicit = prose.includes("[EXPLICIT]");
+      const hasInferredStrong = prose.includes("[INFERRED:strong]");
       if (hasExplicit) explicitCount++;
-      if (/\[INFERRED(:strong|:weak)?\]/.test(line) || line.includes("[ASSUMED]")) inferredCount++;
+      if (/\[INFERRED(:strong|:weak)?\]/.test(prose) || prose.includes("[ASSUMED]")) inferredCount++;
 
       // Tier ceiling (BLOCK).
       if (hasExplicit && tier && !ceilingT12)
