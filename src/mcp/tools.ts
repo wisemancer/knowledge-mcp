@@ -2,6 +2,7 @@ import { readFile, writeFile } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { join, resolve, relative } from "path";
+import { type ProjectType } from "../types.js";
 
 const execAsync = promisify(exec);
 import { readKnowledgeBase } from "../knowledge/reader.js";
@@ -62,6 +63,11 @@ const GENERATE_KNOWLEDGE_BASE_SCHEMA = {
   type: "object",
   properties: {
     source_dirs: { type: "array", items: { type: "string" } },
+    language: {
+      type: "string",
+      enum: ["swift", "node", "go", "rust", "python", "java", "cpp", "generic"],
+      description: "Force the project type. If omitted, auto-detected from the project root.",
+    },
   },
 } as const;
 
@@ -320,7 +326,8 @@ async function executeTool(
           new Error("No source directories specified"),
         );
       }
-      const output = await generateKnowledgeBase(projectDir, sourceDirs);
+      const language = params.language as ProjectType | undefined;
+      const output = await generateKnowledgeBase(projectDir, sourceDirs, language);
       return createToolResponse(toolName, output);
     },
 

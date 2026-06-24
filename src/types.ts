@@ -1,3 +1,20 @@
+export type ProjectType =
+  | "swift"
+  | "node"
+  | "go"
+  | "rust"
+  | "python"
+  | "java"
+  | "cpp"
+  | "generic";
+
+export interface ProjectProfile {
+  extensions: string[];
+  skipDirs: string[];
+  defaultSourceDirs: string[];
+  languageHint: string;
+}
+
 export type Marker =
   | "EXPLICIT"
   | "INFERRED:strong"
