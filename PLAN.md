@@ -1,53 +1,37 @@
-# PLAN — knowledge-mcp on `feat/kb-standard`
+# PLAN — Add Security + Collaboration governance rules
 
-Two workstreams on this branch.
+Implements `decisions/009-governance-rules`. Branch: `feat/governance-rules` (off `main`).
 
-## Workstream A — Standard Knowledge-Base Architecture  (DONE, compiling)
-Implements `decisions/007-kb-standard`: canonical/derived layers, markers, citations, source
-tiers, guardrails, Writer→Reviewer→Verifier. Delivered:
-- `types.ts`: `Marker`, `KnowledgeLayer`, `SourceTier`, `KnowledgeFinding`, `KnowledgeVerifyReport`;
-  `KnowledgeMeta` gains optional `layer`/`tier`.
-- `knowledge/reader.ts`: parse optional `layer`/`tier` frontmatter.
-- `knowledge/verify.ts` (new): `verifyKnowledge` — objective marker/citation/tier/staleness checks.
-- `mcp/tools.ts`: new read-only `verify_knowledge` tool (10th); read output surfaces `layer`/`tier`.
-- `scaffold/index.ts`: canonical/derived/meta template layout + `TEMPLATE_SOURCE_TIERS`/
-  `TEMPLATE_GUARDRAILS`; `generate_knowledge_base`/`design_project` instruction text demands the standard.
+## Goal
+Add two governance sections to the project-instruction files the tool emits AND to this repo's
+own root files:
 
-## Workstream B — Standalone Claude-Code MCP (remove external models)
-Implements `decisions/008-standalone-mcp`. knowledge-mcp must depend on NO external model: Claude
-Code is the only reasoner. Remove the Claude API surface and Ollama entirely.
-
-### Decisions taken
-- **Search → dependency-free lexical.** Reimplement `searchKnowledge` as in-process term scoring over
-  `## ` sections. Delete embeddings, the JSON vector store, and `.index.json`.
-- **`update_knowledge` → agent-driven.** Return current doc + changed-file contents + instructions;
-  Claude rewrites and saves via `write_knowledge_file`. No model call. (Mirrors `generate_knowledge_base`.)
-- **Config removed.** It only held Ollama/Claude settings; nothing configurable remains.
-
-### Files to delete
-- `src/ollama/` (client) · `src/search/vector-store.ts` · `src/config.ts` · `.knowledge/.index.json`
-- Stale docs: `.knowledge/modules/{claude-client,ollama-client,vector-store}.md`
-
-### Files to modify
-- `src/search/engine.ts` — rewrite: lexical `searchKnowledge(projectDir, query, topK)`; drop
-  `rebuildIndex`, `cosineSimilarity`, embeddings, staleness, vector-store imports.
-- `src/types.ts` — remove `ConfigSchema`/`Config`/zod import, `VectorEntry`/`VectorIndex`,
-  error codes `OLLAMA_UNAVAILABLE`/`EMBED_FAILED`. Keep `SearchResult`.
-- `src/mcp/tools.ts` — `search_knowledge` drops `config`; `update_knowledge` reworked to return text
-  (no Ollama); drop `rebuildIndex` calls; `registerTools`/`executeTool` drop `config` param.
-- `src/mcp/server.ts` — `startServer()` drops `config`.
-- `src/index.ts` — drop `loadConfig`; route on argv only.
-- `src/cli/index.ts` — `runCLI(args)` drops `config`; `update` reworked to print agent instructions;
-  `search` drops `config`; drop Ollama import.
-- `src/scaffold/index.ts` — remove unused `Config` import.
-- Doc updates: `architecture.md` (drop ClaudeClient/Ollama from diagram + tech stack), `search.md`
-  (lexical), `cli.md`, `mcp-server.md` (update_knowledge behavior), `conventions.md`, `config.md` (delete or note removal).
-
-### Observability (Gate 3)
-Unchanged policy: stderr `[knowledge-mcp]` logs on unexpected errors; errors via `KnowledgeError`
-→ `{ isError: true }`. Lexical search and agent-driven update add no I/O needing new instrumentation.
-
-### Verify
-`npx tsc --noEmit` → `npm run build` → `npm install -g .` → `git rm .knowledge/.index.json` →
-run `verify_knowledge` against this repo's own KB and report findings.
 ```
+## Security
+- Never read .env files or any files that may contain secrets (e.g. .env.local, .env.production,
+  *.env). Use .env.example files to understand available variables instead.
+
+## Collaboration
+- Don't take the user's statements at face value when something seems off. If a reported behavior
+  contradicts the code, investigate before acting. Push back when the reasoning is unclear or the
+  proposed fix doesn't match the actual problem.
+- The goal is to make the user better, not just to complete tasks. Point out when an approach has a
+  flaw, when a simpler solution exists, or when a change is unnecessary.
+```
+
+## Files to modify
+1. `src/scaffold/index.ts` — add both sections to `TEMPLATE_CLAUDE_MD` and `TEMPLATE_AGENTS_MD`
+   (after the gate/rule sections, before Build & Verify).
+2. `CLAUDE.md` (repo root) — add both sections.
+3. `AGENTS.md` (repo root) — add both sections.
+4. `.knowledge/canonical/modules/agents-md.md` — note the two new emitted sections (doc accuracy).
+
+## Constraints / observability
+- Instruction-text only; no code path, tool, or type changes. Existing observability policy unchanged.
+- Templates are inline literals (see `modules/scaffold`), so this is a source edit → rebuild + global
+  reinstall required for the changes to take effect in other sessions.
+
+## Verify
+`npx tsc --noEmit` → `npm run build` → `npm install -g .` → scaffold a throwaway project and confirm
+both sections appear in its generated CLAUDE.md/AGENTS.md → `verify_knowledge` stays clean → commit,
+push, PR against `main`.

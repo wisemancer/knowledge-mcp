@@ -35,6 +35,8 @@ Start every session: call `read_knowledge_base` with no arguments.
 <bullet list of the 3–5 most critical constraints from architecture.md and conventions.md>
 ```
 
+The emitted `AGENTS.md` and `CLAUDE.md` also carry standard governance sections — `## Security` (never read `.env`/secret files; use `.env.example`) and `## Collaboration` (investigate when reports contradict the code, push back, optimize for making the user better). See `decisions/009-governance-rules`.
+
 ## Constraints
 - `initKnowledgeBase` must not overwrite an existing `AGENTS.md`. Same idempotency rule as all other init files.
 - `AGENTS.md` is written to `projectDir` directly (the project root), not inside `.knowledge/`.
