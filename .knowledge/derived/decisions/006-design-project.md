@@ -1,5 +1,7 @@
 ---
 module: decisions/006-design-project
+layer: derived
+tier: T2
 updated: 2026-05-13
 files: []
 ---

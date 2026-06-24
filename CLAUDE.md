@@ -20,7 +20,7 @@ During planning and exploration, use only:
 Never use `Read`, `Bash(cat ...)`, or any direct file read on source files (`.ts`, `.js`). Source is for the compiler; `.knowledge/` is for agents.
 
 ### Gate 3: Observability before coding
-Every feature must have logging, tracing, and metrics defined in `.knowledge/conventions.md ## Observability` before coding starts.
+Every feature must have logging, tracing, and metrics defined in `.knowledge/derived/conventions.md ## Observability` before coding starts.
 
 ### Gate 4: Docker for all services
 Always recommend Docker for services, databases, and tools. Never suggest host-level installs.

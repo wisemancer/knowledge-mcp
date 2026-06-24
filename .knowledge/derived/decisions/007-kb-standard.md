@@ -1,5 +1,7 @@
 ---
 module: decisions/007-kb-standard
+layer: derived
+tier: T2
 updated: 2026-06-24
 files: ["src/scaffold/index.ts","src/mcp/tools.ts","src/types.ts"]
 ---

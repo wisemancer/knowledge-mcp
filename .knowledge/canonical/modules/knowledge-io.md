@@ -1,5 +1,7 @@
 ---
 module: knowledge-io
+layer: canonical
+tier: T1
 updated: 2026-04-28
 files: [src/knowledge/reader.ts, src/knowledge/writer.ts]
 ---

@@ -1,5 +1,7 @@
 ---
 module: agents-md
+layer: canonical
+tier: T1
 updated: 2026-05-04
 files: [src/scaffold/index.ts]
 ---
