@@ -19,7 +19,7 @@ Initializes the MCP server, registers all ten tools with their input schemas and
 
 **`read_knowledge_base`** — no `module` arg returns all knowledge files AND `AGENTS.md` (the canonical "full project context" call). A `module` filter excludes AGENTS.md.
 
-**`generate_knowledge_base`** — collects source files (≤100KB) and returns them as formatted text with instructions that demand the standard KB (canonical/derived split, markers, citations, tier ceilings, guardrail self-review, then `verify_knowledge`). No LLM call.
+**`generate_knowledge_base`** — collects source files (≤100KB) and returns them as formatted text with instructions that demand the standard KB (canonical/derived split, markers, citations, tier ceilings, guardrail self-review, then `verify_knowledge`). No LLM call. Takes an optional `language` enum (swift/node/go/rust/python/java/cpp/generic); if omitted the project type is auto-detected from root markers. The chosen profile drives file-extension/skip-dir discovery and prepends an ecosystem hint. See `decisions/010-language-profiles`.
 
 **`write_knowledge_file`** — writes a single file to `.knowledge/` and rebuilds the vector index. `path` is relative to `.knowledge/` (e.g. `"canonical/modules/auth.md"`).
 

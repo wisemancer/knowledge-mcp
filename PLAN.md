@@ -1,37 +1,44 @@
-# PLAN — Add Security + Collaboration governance rules
+# PLAN — Language-aware generation (PROJECT_PROFILES)
 
-Implements `decisions/009-governance-rules`. Branch: `feat/governance-rules` (off `main`).
+Implements `decisions/010-language-profiles`. Branch: `feat/language-profiles` (off `main`).
+Ports the profile idea from the abandoned `feat/initial-implementation`, adapted to the
+standalone + standard-KB design. PR #2 stays open (untouched).
 
-## Goal
-Add two governance sections to the project-instruction files the tool emits AND to this repo's
-own root files:
+## Files to modify (topological)
+1. `src/types.ts` — add:
+   ```ts
+   export type ProjectType = 'swift'|'node'|'go'|'rust'|'python'|'java'|'cpp'|'generic';
+   export interface ProjectProfile { extensions: string[]; skipDirs: string[]; defaultSourceDirs: string[]; languageHint: string; }
+   ```
+2. `src/scaffold/index.ts`
+   - Add `PROJECT_PROFILES: Record<ProjectType, ProjectProfile>` (8 profiles).
+   - Add `export async function detectProjectType(projectDir): Promise<ProjectType>` — root-marker
+     detection (Package.swift/*.xcodeproj, go.mod, Cargo.toml, package.json, pyproject/setup/requirements,
+     pom/build.gradle, CMakeLists/Makefile), fallback `generic`.
+   - `generateKnowledgeBase(projectDir, sourceDirs, languageOverride?: ProjectType)`:
+     - `type = languageOverride ?? await detectProjectType(projectDir)`; `profile = PROJECT_PROFILES[type]`.
+     - Discovery uses `profile.extensions`; pass merged skip set (`NOISE_DIRS ∪ profile.skipDirs`) to `walkDir`.
+     - Prepend `Language: <type>` + `profile.languageHint`, then KEEP the current standard-KB
+       instruction block (canonical/derived, markers, citations, tiers, guardrails, verify_knowledge) unchanged.
+   - `walkDir(dir, skipDirs)` gains a skip-set param (prune during recursion; still skips dotdirs).
+3. `src/mcp/tools.ts` — `generate_knowledge_base` schema gains optional `language` enum; handler passes
+   `params.language as ProjectType | undefined` to `generateKnowledgeBase`.
+4. `src/cli/index.ts` — `generate` gains `--lang <type>`; passes override through.
 
-```
-## Security
-- Never read .env files or any files that may contain secrets (e.g. .env.local, .env.production,
-  *.env). Use .env.example files to understand available variables instead.
+## Knowledge docs
+- Update `canonical/modules/scaffold.md` (Interfaces: new types + `generateKnowledgeBase` signature,
+  `detectProjectType`; note profile-based discovery).
+- Update `canonical/modules/mcp-server.md` (generate tool gains `language`).
 
-## Collaboration
-- Don't take the user's statements at face value when something seems off. If a reported behavior
-  contradicts the code, investigate before acting. Push back when the reasoning is unclear or the
-  proposed fix doesn't match the actual problem.
-- The goal is to make the user better, not just to complete tasks. Point out when an approach has a
-  flaw, when a simpler solution exists, or when a change is unnecessary.
-```
+## Observability (Gate 3)
+Unchanged policy — pure file I/O + text; detection failures fall back to `generic` (no throw),
+errors still surface via `KnowledgeError` → `{ isError: true }`. No new logging/metrics needed.
 
-## Files to modify
-1. `src/scaffold/index.ts` — add both sections to `TEMPLATE_CLAUDE_MD` and `TEMPLATE_AGENTS_MD`
-   (after the gate/rule sections, before Build & Verify).
-2. `CLAUDE.md` (repo root) — add both sections.
-3. `AGENTS.md` (repo root) — add both sections.
-4. `.knowledge/canonical/modules/agents-md.md` — note the two new emitted sections (doc accuracy).
-
-## Constraints / observability
-- Instruction-text only; no code path, tool, or type changes. Existing observability policy unchanged.
-- Templates are inline literals (see `modules/scaffold`), so this is a source edit → rebuild + global
-  reinstall required for the changes to take effect in other sessions.
+## Constraints / compatibility
+- Backward compatible: omitting `language`/`--lang` auto-detects; existing callers keep working.
+- No new dependency; no external model; detection is root-only filesystem reads.
+- All shared types in `src/types.ts`; no `any` (cast `language` at the MCP boundary).
 
 ## Verify
-`npx tsc --noEmit` → `npm run build` → `npm install -g .` → scaffold a throwaway project and confirm
-both sections appear in its generated CLAUDE.md/AGENTS.md → `verify_knowledge` stays clean → commit,
-push, PR against `main`.
+`tsc --noEmit` → `npm run build` → scaffold/generate smoke test (auto-detect on this repo = node;
+`--lang rust` overrides) → `verify_knowledge` clean → `npm install -g .` → commit, push, PR vs main.

@@ -1,9 +1,79 @@
 import { readFile, writeFile, mkdir, access, readdir, stat } from "fs/promises";
 import { constants } from "fs";
 import { join, resolve, relative, dirname, extname } from "path";
+import { type ProjectType, type ProjectProfile } from "../types.js";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+const PROJECT_PROFILES: Record<ProjectType, ProjectProfile> = {
+  swift: {
+    extensions: [".swift", ".h", ".hpp"],
+    skipDirs: ["DerivedData", ".build", "Pods", ".swiftpm", "Build"],
+    defaultSourceDirs: ["Sources", "."],
+    languageHint: "This is a Swift/iOS project. Note UIKit/SwiftUI patterns, protocols, delegates, and SwiftPM structure.",
+  },
+  node: {
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs"],
+    skipDirs: ["node_modules", "dist", "build", ".next", ".nuxt", "out", "coverage"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "This is a TypeScript/Node.js project. Note module exports, async patterns, and framework conventions.",
+  },
+  go: {
+    extensions: [".go"],
+    skipDirs: ["vendor", "build", "dist"],
+    defaultSourceDirs: ["pkg", "cmd", "internal", "."],
+    languageHint: "This is a Go project. Note package structure, interfaces, and error-handling idioms.",
+  },
+  rust: {
+    extensions: [".rs"],
+    skipDirs: ["target", "build"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "This is a Rust project. Note ownership, trait patterns, crate structure, and Cargo conventions.",
+  },
+  python: {
+    extensions: [".py"],
+    skipDirs: [".venv", "venv", "__pycache__", ".tox", "build", "dist", ".egg-info"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "This is a Python project. Note class hierarchies, decorators, and module organization.",
+  },
+  java: {
+    extensions: [".java", ".kt"],
+    skipDirs: ["build", "target", ".gradle", ".m2"],
+    defaultSourceDirs: ["src", "src/main/java", "."],
+    languageHint: "This is a JVM project (Java/Kotlin). Note class hierarchies, interfaces, and build conventions.",
+  },
+  cpp: {
+    extensions: [".cpp", ".c", ".h", ".hpp", ".cc", ".cxx"],
+    skipDirs: ["build", "dist", "obj"],
+    defaultSourceDirs: ["src", "include", "."],
+    languageHint: "This is a C/C++ project. Note the header/implementation split and build-system conventions.",
+  },
+  generic: {
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs", ".java", ".kt", ".cpp", ".c", ".h", ".hpp", ".swift"],
+    skipDirs: ["node_modules", "dist", "build", "__pycache__", "target", ".venv", "Pods", ".build", "vendor", "out", "coverage"],
+    defaultSourceDirs: ["src", "."],
+    languageHint: "Analyze the source structure, patterns, and module organization.",
+  },
+};
+
+// Root-marker detection; falls back to 'generic'. Never throws.
+export async function detectProjectType(projectDir: string): Promise<ProjectType> {
+  try {
+    const entries = await readdir(resolve(projectDir));
+    const has = (name: string) => entries.includes(name);
+    if (has("Package.swift") || entries.some((e) => e.endsWith(".xcodeproj") || e.endsWith(".xcworkspace"))) return "swift";
+    if (has("go.mod")) return "go";
+    if (has("Cargo.toml")) return "rust";
+    if (has("package.json")) return "node";
+    if (has("requirements.txt") || has("setup.py") || has("pyproject.toml")) return "python";
+    if (has("pom.xml") || has("build.gradle") || entries.some((e) => e.endsWith(".gradle.kts"))) return "java";
+    if (has("CMakeLists.txt") || has("Makefile")) return "cpp";
+    return "generic";
+  } catch {
+    return "generic";
+  }
 }
 
 function TEMPLATE_ARCHITECTURE(projectName: string): string {
@@ -381,7 +451,14 @@ export async function initKnowledgeBase(
 export async function generateKnowledgeBase(
   projectDir: string,
   sourceDirs: string[],
+  languageOverride?: ProjectType,
 ): Promise<string> {
+  // Pick a language profile (explicit override, else auto-detect from project root).
+  const projectType = languageOverride ?? (await detectProjectType(projectDir));
+  const profile = PROJECT_PROFILES[projectType];
+  const supportedExtensions = new Set(profile.extensions);
+  const skipDirs = new Set([...NOISE_DIRS, ...profile.skipDirs]);
+
   // Collect source files up to 100KB total
   let totalBytes = 0;
   const MAX_BYTES = 100 * 1024;
@@ -389,26 +466,10 @@ export async function generateKnowledgeBase(
 
   for (const dir of sourceDirs) {
     const fullDir = resolve(dir);
-    const entries = await walkDir(fullDir);
+    const entries = await walkDir(fullDir, skipDirs);
     for (const entry of entries) {
       if (totalBytes >= MAX_BYTES) break;
-      const ext = extname(entry);
-      if (
-        ![
-          ".ts",
-          ".tsx",
-          ".js",
-          ".jsx",
-          ".json",
-          ".yaml",
-          ".yml",
-          ".toml",
-          ".md",
-          ".html",
-          ".css",
-        ].includes(ext)
-      )
-        continue;
+      if (!supportedExtensions.has(extname(entry))) continue;
       const content = await readFile(entry, "utf-8");
       const size = Buffer.byteLength(content, "utf-8");
       if (totalBytes + size > MAX_BYTES) break;
@@ -420,6 +481,8 @@ export async function generateKnowledgeBase(
 
   // Format collected files as text for the caller (Claude Code) to analyze
   const lines: string[] = [];
+  lines.push(`Language: ${projectType}`);
+  lines.push(`${profile.languageHint}\n`);
   for (const f of sourceFiles) {
     lines.push(`=== ${f.path} ===\n${f.content}\n=== end ===`);
   }
@@ -509,7 +572,7 @@ const NOISE_DIRS = new Set([
   "node_modules", "dist", "build", "__pycache__", ".venv", "coverage", ".next", "out",
 ]);
 
-async function walkDir(dir: string): Promise<string[]> {
+async function walkDir(dir: string, skipDirs: Set<string> = NOISE_DIRS): Promise<string[]> {
   const results: string[] = [];
   let entries: string[];
   try {
@@ -518,10 +581,10 @@ async function walkDir(dir: string): Promise<string[]> {
     return results;
   }
   for (const entry of entries) {
-    if (entry.startsWith(".") || NOISE_DIRS.has(entry)) continue;
+    if (entry.startsWith(".") || skipDirs.has(entry)) continue;
     const fullPath = join(dir, entry);
     const s = await stat(fullPath);
-    if (s.isDirectory()) results.push(...(await walkDir(fullPath)));
+    if (s.isDirectory()) results.push(...(await walkDir(fullPath, skipDirs)));
     else results.push(fullPath);
   }
   return results;

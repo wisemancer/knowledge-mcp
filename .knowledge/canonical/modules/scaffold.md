@@ -39,9 +39,16 @@ const sourceText = await generateKnowledgeBase(projectDir, ['src/']);
 ## Interfaces
 ```typescript
 export async function initKnowledgeBase(projectDir: string, projectName?: string): Promise<void>
-export async function generateKnowledgeBase(projectDir: string, sourceDirs: string[]): Promise<string>
+export async function generateKnowledgeBase(projectDir: string, sourceDirs: string[], languageOverride?: ProjectType): Promise<string>
+export async function detectProjectType(projectDir: string): Promise<ProjectType>
 export function designProject(idea: string): string
 ```
+
+`generateKnowledgeBase` picks a language profile from `PROJECT_PROFILES` (`languageOverride` else
+`detectProjectType`, fallback `generic`). The profile drives source-file discovery (`extensions` +
+`skipDirs`, the latter merged with `NOISE_DIRS` and passed to `walkDir`) and prepends a `Language:`
+line plus the profile `languageHint` to the returned text — followed by the unchanged standard-KB
+instructions. See `decisions/010-language-profiles`. `ProjectType`/`ProjectProfile` live in `src/types.ts`.
 
 The `initKnowledgeBase` file list (all subject to existence check before write):
 ```
